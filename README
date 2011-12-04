@@ -1,0 +1,55 @@
+Voting::VoteFairRanking
+
+This module calculates VoteFair Ranking results.  VoteFair Ranking consists of:
+
+* VoteFair popularity ranking.  This voting method calculates the full popularity ranking of all candidates (or choices in the case of a survey) from most popular and second-most popular down to least popular.  It uses the preference information collected on 1-2-3 ballots (or any equivalent way of expressing "ranked" preferences).  When a single position is being filled, the most popular candidate is declared the winner.  This calculation method is mathematically equivalent to the Condorcet-Kemeny election method.
+
+* VoteFair representation ranking.  This voting method is used to elect a second candidate from the same district, or to fill multiple board-of-director positions, or to choose a second simultaneous activity in addition to the most popular activity.  This method reduces the influence of the voters who are already well-represented by the most popular candidate (or choice).  Without this adjustment the same voters who prefer the first winner also can determine the second winner, and this can leave large numbers of other voters unrepresented.
+
+* VoteFair party ranking.  This voting method ranks political parties according to a different kind of "popularity".  It can be used in high-stakes elections that otherwise attract too many candidates.  In such elections the two or three most popular political parties can be limited to offering just two candidates from each party, and other parties that are somewhat popular can be allowed to offer one candidate each.  Such limits have not been needed in the past because the fear of vote splitting has limited parties to offering only one candidate in each contest.
+
+For detailed descriptions of VoteFair Ranking, see www.VoteFair.org or the book "Ending The Hidden Unfairness In U.S. Elections" by Richard Fobes.
+
+In addition to being useful for elections, VoteFair Ranking also is useful for calculating results for surveys and polls, ranking the popularity of songs and movies, and much more.
+
+Version 4.90
+
+This module has no dependencies.
+
+
+INSTALLATION
+
+To install this module, run the following commands:
+
+	perl Build.PL
+	./Build
+	./Build test
+	./Build install
+
+SUPPORT AND DOCUMENTATION
+
+After installing, you can find documentation for this module with the
+perldoc command.
+
+    perldoc Voting::VoteFairRanking
+
+You can also look for information at:
+
+    RT, CPAN's request tracker
+        http://rt.cpan.org/NoAuth/Bugs.html?Dist=Voting::VoteFairRanking
+
+    AnnoCPAN, Annotated CPAN documentation
+        http://annocpan.org/dist/Voting::VoteFairRanking
+
+    CPAN Ratings
+        http://cpanratings.perl.org/d/Voting::VoteFairRanking
+
+    Search CPAN
+        http://search.cpan.org/dist/Voting::VoteFairRanking
+
+
+COPYRIGHT AND LICENSE
+
+(c) Copyright 1991 through 2011 Richard Fobes at www.VoteFair.org.  You can redistribute and/or modify this VoteFairRanking library module under the Perl Artistic license version 2.0 (a copy of which is included in the LICENSE file).  The mathematical algorithms of VoteFair Ranking are in the public domain.
+
+Conversion of this code into another programming language is also covered by the above license terms.
