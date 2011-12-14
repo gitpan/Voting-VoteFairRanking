@@ -28,7 +28,7 @@
    "provides" : {
       "Voting::VoteFairRanking" : {
          "file" : "lib/Voting/VoteFairRanking.pm",
-         "version" : "4.90"
+         "version" : "5.00"
       }
    },
    "release_status" : "stable",
@@ -37,5 +37,5 @@
          "http://opensource.org/licenses/artistic-license.php"
       ]
    },
-   "version" : "4.90"
+   "version" : "5.00"
 }

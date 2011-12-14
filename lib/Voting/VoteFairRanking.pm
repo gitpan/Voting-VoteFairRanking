@@ -1,9 +1,8 @@
 package Voting::VoteFairRanking;
 
-use warnings;
 use strict;
+use warnings;
 require Exporter;
-
 
 =head1 NAME
 
@@ -14,11 +13,11 @@ Voting::VoteFairRanking - Calculates VoteFair Ranking results
 
 =head1 VERSION
 
-Version 4.90
+Version 5.00
 
 =cut
 
-our $VERSION = '4.90' ;
+our $VERSION = '5.00' ;
 
 
 =head1 SYNOPSIS
@@ -195,6 +194,19 @@ our @EXPORT = qw(
 #
 #  Version 4.9 -- In 2011 this module was added
 #  to Perl's CPAN archives.
+#
+#  Version 5.0 -- In 2011 (December) the
+#  calc_votefair_choice_specific_pairwise_score_popularity_rank
+#  and
+#  calc_votefair_insertion_sort_popularity_rank
+#  subroutines were added.  These subroutines,
+#  when used together, calculate VoteFair
+#  popularity ranking results fast -- in
+#  "polynomial time".  These two subroutines
+#  were developed during the year 2011, as
+#  improvements over the also-fast calculation
+#  subroutine used at VoteFair.org since about
+#  the year 2000.
 
 
 #-----------------------------------------------
@@ -384,6 +396,18 @@ my @global_log_info_choice_at_position ;
 my @global_rank_to_normalize_for_adjusted_choice ;
 
 my %global_code_number_for_letters ;
+
+my $global_scale_for_logged_pairwise_counts ;
+my $global_comparison_count ;
+my $global_sequence_score ;
+my $global_not_same_count ;
+my $global_sequence_score_using_choice_score_method ;
+my $global_sequence_score_using_insertion_sort_method ;
+my $global_sequence_score_using_all_scores_method ;
+my $global_top_choice_according_to_choice_specific_scores ;
+
+my @global_choice_score_popularity_rank_for_actual_choice ;
+my @global_insertion_sort_popularity_rank_for_actual_choice ;
 
 
 #-----------------------------------------------
@@ -1481,6 +1505,20 @@ sub calc_votefair_popularity_rank
 
 
 #-----------------------------------------------
+#  Initialize the insertion-sort rankings to zeros,
+#  which indicate that no ranking has been done.
+
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        if ( $global_using_choice[ $actual_choice ] == $global_true )
+        {
+            $global_insertion_sort_popularity_rank_for_actual_choice[ $actual_choice ] = 0 ;
+        }
+    }
+
+
+#-----------------------------------------------
 #  If the total of the vote counts is zero,
 #  there is a code bug, so indicate an error.
 
@@ -1503,6 +1541,43 @@ sub calc_votefair_popularity_rank
         if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, ERROR: number of (adjusted) choices is less than two]\n" } ;
         return ;
     }
+
+
+#-----------------------------------------------
+#  Do VoteFair choice-specific pairwise-score
+#  (CSPS) ranking.
+
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, VoteFair choice-score ranking calculations beginning]\n" } ;
+    &calc_votefair_choice_specific_pairwise_score_popularity_rank( ) ;
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, VoteFair choice-score ranking calculations done]\n" } ;
+
+
+#-----------------------------------------------
+#  Do VoteFair popularity ranking using the
+#  insertion-sort method, starting with the
+#  ranking that was calculated by the
+#  choice-specific pairwise-score (CSPS)
+#  method.
+
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, VoteFair insertion-sort popularity ranking calculations beginning]\n" } ;
+    &calc_votefair_insertion_sort_popularity_rank( ) ;
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, VoteFair insertion-sort popularity ranking calculations done]\n" } ;
+
+
+#-----------------------------------------------
+#  Optionally, in the future, do a cross-check
+#  that uses the all-scores method to rank the
+#  top six choices.  This cross-check would
+#  identify theoretically possible situations
+#  in which the highest-ranked choice is not
+#  the highest-ranked choice in a sequence that
+#  has the single (untied) highest sequence
+#  score.  Cases that involve multiple sequences
+#  with the same highest sequence score are not
+#  relevant for matching Condorcet-Kemeny
+#  results because that method does not specify
+#  how multiple same-highest-score cases should
+#  be resolved.
 
 
 #-----------------------------------------------
@@ -1532,6 +1607,36 @@ sub calc_votefair_popularity_rank
         if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, calling calc_all_sequence_scores subroutine]\n" } ;
         &calc_all_sequence_scores( ) ;
         if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, returned from calc_all_sequence_scores subroutine]\n" } ;
+    }
+
+
+#-----------------------------------------------
+#  If the full-score calculations were not done,
+#  and the insertion-sort calculations were done,
+#  use the results from the insertion-sort
+#  calculations.
+
+    my $ranking_level_from_insertion_sort_calc ;
+
+    $adjusted_choice = 1 ;
+    $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+    $ranking_level_from_all_scores_calc = $global_popularity_ranking_for_actual_choice[ $actual_choice ] ;
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, sample choice " . $actual_choice . " is at popularity level " . $ranking_level_from_all_scores_calc  . "]\n" } ;
+    $ranking_level_from_insertion_sort_calc = $global_insertion_sort_popularity_rank_for_actual_choice[ $actual_choice ] ;
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, sample choice " . $actual_choice . " is at insert-sort popularity level " . $ranking_level_from_insertion_sort_calc  . "]\n" } ;
+    if ( ( $ranking_level_from_all_scores_calc == 0 ) && ( $ranking_level_from_insertion_sort_calc != 0 ) )
+    {
+        if ( $global_logging_info == $global_true ) { print LOGOUT "[popularity rank, using insertion-sort ranking results (because all-score method not done]\n" } ;
+        {
+            $global_sequence_score_using_all_scores_method = 0 ;
+            for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+            {
+                $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                $ranking_level = $global_insertion_sort_popularity_rank_for_actual_choice[ $actual_choice ] ;
+                $global_popularity_ranking_for_actual_choice[ $actual_choice ] = $ranking_level ;
+                if ( $global_logging_info == $global_true ) { print LOGOUT "[  choice " . $actual_choice . " is at popularity level " . $ranking_level  . "]\n" } ;
+            }
+        }
     }
 
 
@@ -1593,6 +1698,13 @@ sub calc_votefair_popularity_rank
 #  calculations were not done.
 
     }
+
+
+#-----------------------------------------------
+#  Compare the results with other calculation
+#  methods.
+
+    &compare_popularity_results( ) ;
 
 
 #-----------------------------------------------
@@ -2810,6 +2922,2712 @@ sub calc_votefair_party_rank
 
 
 
+
+=head2 calc_votefair_choice_specific_pairwise_score_popularity_rank
+
+(Not exported, for internal use only.)
+
+Calculates VoteFair choice-specific pairwise-score
+(CSPS) popularity ranking results.
+
+This kind of ranking is useful for estimating
+the overall ranking when there are many choices
+(such as hundreds of choices) and fast results
+are desired.   It is also used to estimate the
+ranking before doing the VoteFair
+insertion-sort popularity ranking calculations.
+(If access to a computer is not available, this
+CSPS method can be done using pen and paper and
+a calculator.)
+
+Example:
+
+(A concise description follows this
+example.  The description is easier to
+understand after you have read this example.)
+
+Consider an election (or survey) in which
+there are five choices: A, B, C, D, E, and the
+final ranking order is this alphabetical
+order.
+
+In this example the notation A>B
+refers to how many voters pairwise prefer
+choice A over choice B, and the notation
+B>A refers to how many voters pairwise
+prefer choice B over choice A.  This
+notation always uses the "greater-than" symbol
+">", and never uses the "less-than" symbol
+"<".
+
+At the beginning of this ranking example,
+suppose that the choices are arranged in the
+order C, E, A, D, B.  The pairwise counts
+for this arrangement are shown in this pairwise
+matrix.
+
+      |       |       |       |       |       |
+      |   C   |   E   |   A   |   D   |   B   |
+      |       |       |       |       |       |
+ -----+-------+-------+-------+-------+-------+
+      | \     |       |       |       |       |
+  C   |   \   |  C>E  |  C>A  |  C>D  |  C>B  |
+      |     \ |       |       |       |       |
+ -----+-------+-------+-------+-------+-------+
+      |       | \     |       |       |       |
+  E   |  E>C  |   \   |  E>A  |  E>D  |  E>B  |
+      |       |     \ |       |       |       |
+ -----+-------+-------+-------+-------+-------+
+      |       |       | \     |       |       |
+  A   |  A>C  |  A>E  |   \   |  A>D  |  A>B  |
+      |       |       |     \ |       |       |
+ -----+-------+-------+-------+-------+-------+
+      |       |       |       | \     |       |
+  D   |  D>C  |  D>E  |  D>A  |   \   |  D>B  |
+      |       |       |       |     \ |       |
+ -----+-------+-------+-------+-------+-------+
+      |       |       |       |       | \     |
+  B   |  B>C  |  B>E  |  B>A  |  B>D  |   \   |
+      |       |       |       |       |     \ |
+ -----+-------+-------+-------+-------+-------+
+
+The diagonal line passes through empty
+cells.  These cells are empty because they
+would represent a choice's comparison with
+itself, such as A>A.
+
+The goal of these calculations is to change
+the sequence so that the largest pairwise
+counts move into the upper-right triangular
+area, leaving the smallest pairwise counts in
+the lower-left triangular area.  (This is
+similar to the goal of VoteFair popularity
+ranking.)
+
+The first step is to calculate
+choice-specific scores, with each choice having
+a row score and a column
+score.  For choice A, its row score
+equals the sum of the pairwise counts in the
+row labelled A, which equals A>B +
+A>C + A>D + A>E.  The column
+score for choice A is the sum of the
+pairwise counts in the column labeled A,
+which equals B>A + C>A + D>A +
+E>A.  The row scores and column scores
+for choices B, C, D, and E are calculated
+similarly.
+
+Next, all the row scores are compared to
+determine which choice has the largest row
+score.  In this example that score
+would be the row score for choice A (because it
+is first in alphabetical order).
+Therefore choice A is moved into first
+place.  The other choices remain in the
+same order.  The resulting sequence is A,
+C, E, D, B.  Here is the pairwise matrix
+for the new sequence.  The pairwise counts
+for the ranked choice (A) are surrounded by
+asterisks:
+
+      |       |       |       |       |       |
+      |   A   |   C   |   E   |   D   |   B   |
+      |       |       |       |       |       |
+ -----*****************************************
+      * \     |       |       |       |       *
+  A   *   \   |  A>C  |  A>E  |  A>D  |  A>B  *
+      *     \ |       |       |       |       *
+ -----*-------*********************************
+      *       * \     |       |       |       |
+  C   *  C>A  *   \   |  C>E  |  C>D  |  C>B  |
+      *       *     \ |       |       |       |
+ -----*-------*-------+-------+-------+-------+
+      *       *       | \     |       |       |
+  E   *  E>A  *  E>C  |   \   |  E>D  |  E>B  |
+      *       *       |     \ |       |       |
+ -----*-------*-------+-------+-------+-------+
+      *       *       |       | \     |       |
+  D   *  D>A  *  D>C  |  D>E  |   \   |  D>B  |
+      *       *       |       |     \ |       |
+ -----*-------*-------+-------+-------+-------+
+      *       *       |       |       | \     |
+  B   *  B>A  *  B>C  |  B>E  |  B>D  |   \   |
+      *       *       |       |       |     \ |
+ -----*********-------+-------+-------+-------+
+
+The row scores and column scores for the
+remaining (unranked) choices are adjusted to
+remove the pairwise counts that involve the
+just-ranked choice (A).  The removed
+pairwise counts are the ones surrounded by
+asterisks.  Specifically, after
+subtracting B>A, the row score for choice B
+becomes B>C + B>D + B>E, and after
+subtracting A>B, the column score for choice
+B becomes C>B + D>B + E>B.
+
+From among the remaining row scores the
+highest score is found.  At this point
+let's assume that both choice B and choice C
+have the same highest row score.
+
+In the case of a row-score tie, the
+choice with the smallest column score --
+from among the choices that have the same
+largest row score -- is ranked
+next.  This would be choice B.
+Therefore, choice B is moved to the sequence
+position just after choice A.  The
+resulting sequence is A, B, C, E, D.
+Below is the pairwise matrix for the new
+sequence.  The pairwise counts for the
+ranked choices are surrounded by asterisks.
+
+      |       |       |       |       |       |
+      |   A   |   B   |   C   |   E   |   D   |
+      |       |       |       |       |       |
+ -----*****************************************
+      * \     |       |       |       |       *
+  A   *   \   |  A>B  |  A>C  |  A>E  |  A>D  *
+      *     \ |       |       |       |       *
+ -----*-------+-------+-------+-------+-------*
+      *       | \     |       |       |       *
+  B   *  B>A  |   \   |  B>C  |  B>E  |  B>D  *
+      *       |     \ |       |       |       *
+ -----*-------+--------************************
+      *       |       * \     |       |       |
+  C   *  C>A  |  C>B  *   \   |  C>E  |  C>D  |
+      *       |       *     \ |       |       |
+ -----*-------+-------*-------+-------+-------+
+      *       |       *       | \     |       |
+  E   *  E>A  |  E>B  *  E>C  |   \   |  E>D  |
+      *       |       *       |     \ |       |
+ -----*-------+-------*-------+-------+-------+
+      *       |       *       |       | \     |
+  D   *  D>A  |  D>B  *  D>C  |  D>E  |   \   |
+      *       |       *       |       |     \ |
+ -----*****************-------+-------+-------+
+
+The same ranking process is repeated.
+The next choice to be ranked would be choice
+C.   It would have the highest row score
+-- and the smallest column score if there is a
+row-score tie.   So choice C would be
+identifed as the next choice in the ranked
+sequence.   After that, choice D would
+have the highest row score, and would be ranked
+next.  Finally the only remaining choice,
+choice E, would be ranked at the last (lowest)
+position.
+
+Here is the final pairwise matrix.
+
+      |       |       |       |       |       |
+      |   A   |   B   |   C   |   D   |   E   |
+      |       |       |       |       |       |
+ -----*****************************************
+      * \     |       |       |       |       *
+  A   *   \   |  A>B  |  A>C  |  A>D  |  A>E  *
+      *     \ |       |       |       |       *
+ -----*-------+-------+-------+-------+-------*
+      *       | \     |       |       |       *
+  B   *  B>A  |   \   |  B>C  |  B>D  |  B>E  *
+      *       |     \ |       |       |       *
+ -----*-------+-------+-------+-------+-------*
+      *       |       | \     |       |       *
+  C   *  C>A  |  C>B  |   \   |  C>D  |  C>E  *
+      *       |       |     \ |       |       *
+ -----*-------+-------+-------+-------+-------*
+      *       |       |       | \     |       *
+  D   *  D>A  |  D>B  |  D>C  |   \   |  D>E  *
+      *       |       |       |     \ |       *
+ -----*-------+-------+-------+-------+-------*
+      *       |       |       |       | \     *
+  E   *  E>A  |  E>B  |  E>C  |  E>D  |   \   *
+      *       |       |       |       |     \ *
+ -----*****************************************
+
+The choices are now fully ranked according
+to the Choice-Specific Pairwise-Count
+method.
+
+If only a single winner is needed, the
+first-ranked choice should not necessarily be
+selected as the winner.  Instead, the
+pairwise counts should be checked for a
+possible Condorcet winner, which may be second
+or third in the CSPS ranking result.
+
+Concise description of the calculation method:
+
+A row score and a column score
+is calculated for each choice.  The
+row score is the sum of the pairwise counts in
+which the specified choice is preferred over
+each of the other choices.  The column
+score is the sum of the pairwise counts in
+which each other choice is preferred over the
+specified choice.
+
+For the choices that have not yet been
+ranked, all the row scores are compared to find
+the highest row score.  The choice
+that has the highest row score is moved to the
+most-popular or next-most popular position in
+the ranking results.
+
+If more than one choice is
+tied with the highest row score, the
+choice with the smallest column score is
+chosen.  If more than one choice has the
+same row score and the same column score, the
+choices are regarded as tied.
+
+After each choice has been ranked, the
+scores for the remaining (unranked) choices are
+adjusted by subtracting from all the
+remaining scores the pairwise counts that
+involve the just-ranked choice.
+
+The process of ranking each choice and
+adjusting the remaining scores is
+repeated until only one choice remains,
+and it is ranked in the bottom (least-popular)
+position.
+
+(This description of the VoteFair choice-specific
+pairwise-score method was copied from
+www.VoteFair.org with permission.)
+
+=cut
+
+#-----------------------------------------------
+#-----------------------------------------------
+#            calc_votefair_choice_specific_pairwise_score_popularity_rank
+#-----------------------------------------------
+#-----------------------------------------------
+
+sub calc_votefair_choice_specific_pairwise_score_popularity_rank
+{
+
+    my $adjusted_choice ;
+    my $adjusted_first_choice ;
+    my $adjusted_second_choice ;
+    my $adjusted_choice_being_displaced ;
+    my $adjusted_choice_with_largest_score ;
+    my $adjusted_choice_not_yet_sorted ;
+    my $actual_choice ;
+    my $actual_first_choice ;
+    my $actual_second_choice ;
+    my $actual_choice_with_largest_score ;
+    my $actual_choice_not_yet_sorted ;
+    my $actual_choice_being_displaced ;
+    my $sequence_position ;
+    my $new_position_of_choice_being_moved ;
+    my $previous_position_of_choice_being_moved ;
+    my $sequence_position_of_choice_not_yet_sorted ;
+    my $ranking_level ;
+    my $main_loop_count ;
+    my $pair_counter ;
+    my $tally_first_over_second ;
+    my $tally_second_over_first ;
+    my $row_score ;
+    my $column_score ;
+    my $largest_row_score ;
+    my $smallest_column_score ;
+    my $largest_column_score ;
+    my $row_score_reduction ;
+    my $column_score_reduction ;
+    my $count_of_choices_sorted ;
+    my $true_or_false_log_details ;
+    my $count_of_tied_scores ;
+    my $difference_between_tallies ;
+    my $largest_positive_difference ;
+    my $list_pointer ;
+    my $tie_count_limit ;
+    my $first_pointer ;
+    my $second_pointer ;
+
+    my @row_score_for_adjusted_choice ;
+    my @column_score_for_adjusted_choice ;
+    my @position_in_sequence_for_adjusted_choice ;
+    my @adjusted_choice_in_rank_sequence_position ;
+    my @adjusted_choice_at_tie_count ;
+
+
+#-----------------------------------------------
+#  Hide or show the details in the log file.
+
+    $true_or_false_log_details = $global_true ;
+    if ( $global_logging_info == $global_true )
+    {
+        print LOGOUT "[choice-score, beginning calc_votefair_choice_specific_pairwise_score_popularity_rank subroutine]\n\n" ;
+        if ( $true_or_false_log_details == $global_true )
+        {
+            print LOGOUT "[choice-score, details shown (change flag value to hide details)]\n" ;
+        } else
+        {
+            print LOGOUT "[choice-score, details hidden (change flag value to view details)]\n" ;
+        }
+    }
+
+
+#-----------------------------------------------
+#  Initialize the scale value for the logged
+#  pairwise counts.
+
+    $global_scale_for_logged_pairwise_counts = 1.0 ;
+
+
+#-----------------------------------------------
+#  Initialize the results in case of an early
+#  exit.
+
+    for ( $adjusted_choice = 1 ; $adjusted_choice < $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] = 0 ;
+    }
+
+
+#-----------------------------------------------
+#  If there are not at least two choices,
+#  indicate an error.
+
+    if ( $global_adjusted_choice_count < 2 )
+    {
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, ERROR: number of (adjusted) choices is less than two]\n" } ;
+        return ;
+    }
+
+
+#-----------------------------------------------
+#  Initialize the choice sequence.  Just use
+#  numerical order.  Also initialize other
+#  values.
+
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $sequence_position = $adjusted_choice ;
+        $adjusted_choice_in_rank_sequence_position[ $sequence_position ] = $adjusted_choice ;
+        $position_in_sequence_for_adjusted_choice[ $adjusted_choice ] = $sequence_position ;
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] = 0 ;
+    }
+    $adjusted_choice_with_largest_score = 0 ;
+    $global_top_choice_according_to_choice_specific_scores = 0 ;
+    $global_sequence_score_using_choice_score_method = 0 ;
+
+
+#-----------------------------------------------
+#  Initialize the value that keeps track of how many
+#  choices are in the group of highest-ranked
+#  choices.
+
+    $count_of_choices_sorted = 0 ;
+
+
+#-----------------------------------------------
+#  For debugging, display the tally numbers in
+#  an array/matrix arrangement.
+
+    if ( $true_or_false_log_details == $global_true )
+    {
+        for ( $sequence_position = 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+        {
+            $adjusted_choice = $adjusted_choice_in_rank_sequence_position[ $sequence_position ] ;
+            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+            $global_log_info_choice_at_position[ $sequence_position ] = $actual_choice ;
+        }
+        print LOGOUT "[choice-score, initial ranking:]\n" ;
+        &internal_view_matrix( ) ;
+    }
+
+
+#-----------------------------------------------
+#  Sum the tally counts in each column and each
+#  row.
+#  (The position of each choice in the
+#  array/matrix does not affect these sums.)
+#  The "pair counter" is an index that accesses
+#  each combination of (adjusted) choice
+#  numbers, where the first choice number is
+#  less than the second choice number.
+#  As a visual representation this means that
+#  the pairwise tallies (counts) for the
+#  upper-right diagonal and the lower-left
+#  diagonal (triangular areas of the pairwise
+#  matrix) are stored in the
+#  global_tally_first_over_second_in_pair
+#  and
+#  global_tally_second_over_first_in_pair
+#  lists (not necessarily respectively).
+
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $row_score_for_adjusted_choice[ $adjusted_choice ] = 0 ;
+        $column_score_for_adjusted_choice[ $adjusted_choice ] = 0 ;
+    }
+    for ( $pair_counter = 1 ; $pair_counter <= $global_pair_counter_maximum ; $pair_counter ++ )
+    {
+        $adjusted_first_choice = $global_adjusted_first_choice_number_in_pair[ $pair_counter ] ;
+        $adjusted_second_choice = $global_adjusted_second_choice_number_in_pair[ $pair_counter ] ;
+        $row_score_for_adjusted_choice[ $adjusted_first_choice ] += $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+        $row_score_for_adjusted_choice[ $adjusted_second_choice ] += $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+        $column_score_for_adjusted_choice[ $adjusted_first_choice ] += $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+        $column_score_for_adjusted_choice[ $adjusted_second_choice ] += $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+        $actual_first_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_first_choice ] ;
+        $actual_second_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_second_choice ] ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, for first choice " . $actual_first_choice . " and second choice " . $actual_second_choice . " , tally first over second is " . $global_tally_first_over_second_in_pair[ $pair_counter ] . " , and tally second over first is " . $global_tally_second_over_first_in_pair[ $pair_counter ] . "]\n" } ;
+    }
+
+
+#-----------------------------------------------
+#  Display (in the log file) the current column
+#  and row scores.  Also save the largest
+#  column score.
+
+    $largest_column_score = 0 ;
+    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, current column and row scores:]\n" } ;
+    for ( $sequence_position = $count_of_choices_sorted + 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+    {
+        $adjusted_choice = $adjusted_choice_in_rank_sequence_position[ $sequence_position ] ;
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[  for choice " . $actual_choice . " row score is " . $row_score_for_adjusted_choice[ $adjusted_choice ] . " and column score is " . $column_score_for_adjusted_choice[ $adjusted_choice ] . "]\n" } ;
+        if ( $column_score_for_adjusted_choice[ $adjusted_choice ] > $largest_column_score )
+        {
+            $largest_column_score = $column_score_for_adjusted_choice[ $adjusted_choice ] ;
+        }
+    }
+    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "\n" } ;
+
+
+#-----------------------------------------------
+#  Begin a loop that identifies which choice
+#  to move into the first/next-highest or
+#  last/lowest sequence position.
+#  The loop is exited in the middle (not here).
+
+    $main_loop_count = 0 ;
+    while ( $main_loop_count < $global_adjusted_choice_count + 10 )
+    {
+        $main_loop_count ++ ;
+
+
+#-----------------------------------------------
+#  Prevent an endless loop.
+
+        if ( $main_loop_count > 10000 )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, loop counter has exceeded limit, probably because the choice count (" . $global_full_choice_count . ") is so large, so exiting choice-score rank]" } ;
+            for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+            {
+                $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] = 0 ;
+            }
+            last ;
+        }
+
+
+#-----------------------------------------------
+#  If there is only one choice remaining, rank
+#  it at the middle, between the two sorted lists.
+
+        if ( $count_of_choices_sorted + 1 == $global_adjusted_choice_count )
+        {
+            $adjusted_choice = $adjusted_choice_in_rank_sequence_position[ $count_of_choices_sorted + 1 ] ;
+            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+            $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] = $count_of_choices_sorted + 1 ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, no choices unsorted, so done sorting]\n" } ;
+            last ;
+        }
+
+
+#-----------------------------------------------
+#  If all the choices have been sorted, exit
+#  the loop.
+
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, most-popular sorted list length is " . $count_of_choices_sorted . "]\n" } ;
+        if ( $count_of_choices_sorted >= $global_adjusted_choice_count )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, no choices unsorted, so done sorting]\n" } ;
+            last ;
+        }
+
+
+#-----------------------------------------------
+#  Identify which choice has the largest
+#  choice-specific score-based row score.
+#  If there is a tie between row scores,
+#  choose the choice with the smallest
+#  column score.  If there are multiple tied
+#  choices, save those choice numbers in a list.
+
+        $largest_row_score = -1 ;
+        $smallest_column_score = $largest_column_score ;
+        $adjusted_choice_with_largest_score = 0 ;
+        $count_of_tied_scores = 0 ;
+        for ( $sequence_position = $count_of_choices_sorted + 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+        {
+            $adjusted_choice = $adjusted_choice_in_rank_sequence_position[ $sequence_position ] ;
+            $row_score = $row_score_for_adjusted_choice[ $adjusted_choice ] ;
+            $column_score = $column_score_for_adjusted_choice[ $adjusted_choice ] ;
+            if ( ( $row_score > $largest_row_score ) || ( ( $row_score == $largest_row_score ) && ( $column_score < $smallest_column_score ) ) )
+            {
+                $adjusted_choice_with_largest_score = $adjusted_choice ;
+                $largest_row_score = $row_score ;
+                $smallest_column_score = $column_score ;
+                $count_of_tied_scores = 1 ;
+                $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_choice_with_largest_score ;
+                $actual_choice_with_largest_score = $global_actual_choice_for_adjusted_choice[ $adjusted_choice_with_largest_score ] ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, starting new tied list, adding to tied list, choice " . $actual_choice_with_largest_score . " (row score is " . $largest_row_score . " and column score is " . $smallest_column_score . ")]\n" } ;
+            } elsif ( $row_score == $largest_row_score )
+            {
+                $adjusted_choice_with_largest_score = $adjusted_choice ;
+                $count_of_tied_scores ++ ;
+                $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_choice_with_largest_score ;
+                $actual_choice_with_largest_score = $global_actual_choice_for_adjusted_choice[ $adjusted_choice_with_largest_score ] ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, adding to tied list, choice " . $actual_choice_with_largest_score . " (row score is " . $largest_row_score . " and column score is " . $smallest_column_score . ")]\n" } ;
+            }
+        }
+
+
+#-----------------------------------------------
+#  Specify the limit for the number of tied
+#  choices for which it is worth the time to
+#  see if the choices with the same highest scores
+#  can be sorted.  This number should NOT
+#  exceed about 5 at the most.  If it is one,
+#  the lowest-numbered choice will be sorted
+#  into the next position.
+
+        $tie_count_limit = 1 ;
+        if ( $tie_count_limit < 1 )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[ERROR: choice-score, tie_count_limit (" . $count_of_tied_scores . ") is too small]\n" } ;
+            die "value of tie_count_limit is too small" ;
+        }
+
+
+#-----------------------------------------------
+#  If only one choice has the highest score,
+#  save it, and skip over the next sections
+#  that deal with ties.
+#  If this choice is the highest-ranked choice,
+#  make it available for possible tie-breaking
+#  use in the insertion-sort calculations.
+
+        if ( $count_of_tied_scores == 1 )
+        {
+            $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_choice_with_largest_score ;
+            $actual_choice_with_largest_score = $global_actual_choice_for_adjusted_choice[ $adjusted_choice_with_largest_score ] ;
+            if ( $count_of_choices_sorted == 0 )
+            {
+                $global_top_choice_according_to_choice_specific_scores = $actual_choice_with_largest_score ;
+            }
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, no tie, only choice " . $actual_choice_with_largest_score . "]\n" } ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, choice " . $actual_choice_with_largest_score . " has largest row score " . $largest_row_score . " (and a possible tie-breaking column score of " . $smallest_column_score . ")]\n" } ;
+
+
+#-----------------------------------------------
+#  If there are too many tied choices, pick the
+#  first one as the next choice to sort.
+#  Keep in mind that this algorithm estimates
+#  the ranking, and depends on the
+#  insertion-sort algorithm to refine the exact
+#  ranking.  Also, the method of resolving a
+#  tie (below) is not always correct.
+
+        } elsif ( $count_of_tied_scores > $tie_count_limit )
+        {
+            $count_of_tied_scores = 1 ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, there is a tie among " . $count_of_tied_scores . " choices, which is too many, so only choice " . $adjusted_choice_at_tie_count[ $count_of_tied_scores ] . " is picked]\n" } ;
+
+
+#-----------------------------------------------
+#  If more than one choice has the same highest
+#  row score, without a tie-breaking column score,
+#  begin to identify which
+#  choice has the best (highest) pairwise
+#  comparison with each of the other tied
+#  choices.
+
+        } else
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, tie involving " . $count_of_tied_scores . " choices]\n" } ;
+
+
+#-----------------------------------------------
+#  For each pair of tied choices, calculate the
+#  difference between the relevant pairwise
+#  counts (tally numbers), and identify the
+#  largest such difference, and choose to sort
+#  the choice that is associated with the
+#  largest positive difference.
+
+            $largest_positive_difference = 0 ;
+            for ( $first_pointer = 1 ; $first_pointer < $count_of_tied_scores ; $first_pointer ++ )
+            {
+                $adjusted_first_choice = $adjusted_choice_at_tie_count[ $first_pointer ] ;
+                $actual_first_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_first_choice ] ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, first choice is " . $actual_first_choice . "]\n" } ;
+                for ( $second_pointer = $first_pointer + 1 ; $second_pointer <= $count_of_tied_scores ; $second_pointer ++ )
+                {
+                    $adjusted_second_choice = $adjusted_choice_at_tie_count[ $second_pointer ] ;
+                    $actual_second_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_second_choice ] ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, second choice is " . $actual_second_choice . "]\n" } ;
+                    $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $adjusted_first_choice ] + $adjusted_second_choice ;
+                    $tally_first_over_second = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                    $tally_second_over_first = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, first tied choice " . $actual_first_choice . " and second tied choice " . $actual_second_choice . " have tallies " . $tally_first_over_second . " and " . $tally_second_over_first . "]\n" } ;
+                    $difference_between_tallies = $tally_first_over_second - $tally_second_over_first ;
+                    if ( $difference_between_tallies > 0 )
+                    {
+                        if ( $difference_between_tallies > $largest_positive_difference )
+                        {
+                            $largest_positive_difference = $difference_between_tallies ;
+                            $count_of_tied_scores = 1 ;
+                            $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_first_choice ;
+                            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_first_choice ] ;
+                            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, choice " . $actual_choice . " is first choice chosen so far]\n" } ;
+                        } elsif ( $difference_between_tallies == $largest_positive_difference )
+                        {
+                            $count_of_tied_scores ++ ;
+                            $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_first_choice ;
+                            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_first_choice ] ;
+                            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, choice " . $actual_choice . " is added to list as chosen so far]\n" } ;
+                        }
+                    } elsif ( $difference_between_tallies < 0 )
+                    {
+                        if ( ( - $difference_between_tallies ) > $largest_positive_difference )
+                        {
+                            $largest_positive_difference = - $difference_between_tallies ;
+                            $count_of_tied_scores = 1 ;
+                            $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_second_choice ;
+                            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_second_choice ] ;
+                            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, choice " . $actual_choice . " is first choice chosen so far]\n" } ;
+                        } elsif ( ( - $difference_between_tallies ) == $largest_positive_difference )
+                        {
+                            $count_of_tied_scores ++ ;
+                            $largest_positive_difference = - $difference_between_tallies ;
+                            $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_second_choice ;
+                            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_second_choice ] ;
+                            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, choice " . $actual_choice . " is added to list as chosen so far]\n" } ;
+                        }
+                    } else
+                    {
+                        $largest_positive_difference = 0 ;
+                        $count_of_tied_scores ++ ;
+                        $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_first_choice ;
+                        $count_of_tied_scores ++ ;
+                        $adjusted_choice_at_tie_count[ $count_of_tied_scores ] = $adjusted_second_choice ;
+                        $actual_first_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_first_choice ] ;
+                        $actual_second_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_second_choice ] ;
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, tie at zero, so both choices " . $actual_first_choice . " and " . $actual_second_choice . " are chosen so far]\n" } ;
+                    }
+                    $main_loop_count ++ ;
+                    if ( $main_loop_count > 10000 )
+                    {
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, loop counter has exceeded limit while handling tied scores, which means the value of tie_count_limit (which is " . $tie_count_limit . ") is too large ]" } ;
+                        last ;
+                    }
+                }
+            }
+
+
+#-----------------------------------------------
+#  Terminate the branches that handle situations
+#  in which more than one choice has the same highest
+#  row score (and the lowest column score if there
+#  is a tie in the row scores).
+
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, will repeat loop if another tied choice]\n" } ;
+        }
+
+
+#-----------------------------------------------
+#  Specify the ranking level.
+
+        $ranking_level = $count_of_choices_sorted + 1 ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, ranking level is " . $ranking_level . "]\n" } ;
+
+
+#-----------------------------------------------
+#  Begin a loop that repeats only if there are
+#  multiple choices that are tied at the same
+#  ranking level, in which case the loop
+#  repeats for each such choice.  Otherwise this
+#  loop is executed only once.
+
+        for ( $list_pointer = 1 ; $list_pointer <= $count_of_tied_scores ; $list_pointer ++ )
+        {
+            $adjusted_choice_with_largest_score = $adjusted_choice_at_tie_count[ $list_pointer ] ;
+            $actual_choice_with_largest_score = $global_actual_choice_for_adjusted_choice[ $adjusted_choice_with_largest_score ] ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, next-ranked choice is " . $actual_choice_with_largest_score . "]\n" } ;
+
+
+#-----------------------------------------------
+#  Rank the specified choice at the current ranking
+#  level.
+
+            $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice_with_largest_score ] = $ranking_level ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, choice " . $actual_choice_with_largest_score . " ranked at level " . $ranking_level . "]\n" } ;
+
+
+#-----------------------------------------------
+#  Move the specified choice to the bottom of
+#  the highest-ranked choices.
+#  To make room in the sequence, move
+#  whichever choice is already there.
+#  If the choice is already in the correct
+#  row and column, skip ahead.
+
+            $count_of_choices_sorted ++ ;
+            $new_position_of_choice_being_moved = $count_of_choices_sorted ;
+            $previous_position_of_choice_being_moved = $position_in_sequence_for_adjusted_choice[ $adjusted_choice_with_largest_score ] ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, moving choice " . $actual_choice_with_largest_score . " from position " . $previous_position_of_choice_being_moved . " to position " . $new_position_of_choice_being_moved . "]\n" } ;
+            if ( $new_position_of_choice_being_moved != $previous_position_of_choice_being_moved )
+            {
+                $adjusted_choice_being_displaced = $adjusted_choice_in_rank_sequence_position[ $new_position_of_choice_being_moved ] ;
+                $actual_choice_being_displaced = $global_actual_choice_for_adjusted_choice[ $adjusted_choice_being_displaced ] ;
+
+                $adjusted_choice_in_rank_sequence_position[ $new_position_of_choice_being_moved ] = $adjusted_choice_with_largest_score ;
+
+                $position_in_sequence_for_adjusted_choice[ $adjusted_choice_with_largest_score ] = $new_position_of_choice_being_moved ;
+
+                $adjusted_choice_in_rank_sequence_position[ $previous_position_of_choice_being_moved ] = $adjusted_choice_being_displaced ;
+
+                $position_in_sequence_for_adjusted_choice[ $adjusted_choice_being_displaced ] = $previous_position_of_choice_being_moved ;
+
+            } else
+            {
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, no move needed]" . "\n" } ;
+
+            }
+
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "\n" } ;
+
+
+#-----------------------------------------------
+#  For debugging, display the tally numbers in
+#  an array/matrix arrangement.
+
+            if ( $true_or_false_log_details == $global_true )
+            {
+                for ( $sequence_position = 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+                {
+                    $adjusted_choice = $adjusted_choice_in_rank_sequence_position[ $sequence_position ] ;
+                    $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                    $global_log_info_choice_at_position[ $sequence_position ] = $actual_choice ;
+                }
+                print LOGOUT "[choice-score, intermediate ranking:]\n" ;
+                &internal_view_matrix( ) ;
+            }
+            $global_sequence_score_using_choice_score_method = $global_sequence_score ;
+
+
+#-----------------------------------------------
+#  Skip ahead if the last choice has been sorted.
+
+            if ( $count_of_choices_sorted < $global_adjusted_choice_count )
+            {
+
+
+#-----------------------------------------------
+#  Reduce each row score and each column score by
+#  the pairwise counts that are associated with
+#  the choice that was just sorted.  This
+#  updates the row and column scores to apply to
+#  only the unsorted choices.
+#  In case the number of choices is large (such
+#  as hundreds of choices), access the tally
+#  counts efficiently (and without creating an
+#  extra array that converts from choice-number
+#  combinations into pair numbers).
+
+                for ( $sequence_position_of_choice_not_yet_sorted = $count_of_choices_sorted + 1 ; $sequence_position_of_choice_not_yet_sorted <= $global_adjusted_choice_count ; $sequence_position_of_choice_not_yet_sorted ++ )
+                {
+                    $adjusted_choice_not_yet_sorted = $adjusted_choice_in_rank_sequence_position[ $sequence_position_of_choice_not_yet_sorted ] ;
+                    if ( $adjusted_choice_with_largest_score < $adjusted_choice_not_yet_sorted )
+                    {
+                        $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $adjusted_choice_with_largest_score ] + $adjusted_choice_not_yet_sorted ;
+                        $column_score_reduction = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                        $row_score_reduction = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                    } else
+                    {
+                        $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $adjusted_choice_not_yet_sorted ] + $adjusted_choice_with_largest_score ;
+                        $row_score_reduction = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                        $column_score_reduction = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                    }
+                    $actual_choice_not_yet_sorted = $global_actual_choice_for_adjusted_choice[ $adjusted_choice_not_yet_sorted ] ;
+                    $row_score_for_adjusted_choice[ $adjusted_choice_not_yet_sorted ] -= $row_score_reduction ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, for choice " . $actual_choice_not_yet_sorted . " row score reduced by " . $row_score_reduction . "]\n" } ;
+                    $column_score_for_adjusted_choice[ $adjusted_choice_not_yet_sorted ] -= $column_score_reduction ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, for choice " . $actual_choice_not_yet_sorted . " column score reduced by " . $column_score_reduction . "]\n" } ;
+                }
+
+
+#-----------------------------------------------
+#  Display the updated row and column scores.
+
+                if ( $true_or_false_log_details == $global_true )
+                {
+                    print LOGOUT "[choice-score, current row and column scores:]\n" ;
+                    for ( $sequence_position = $count_of_choices_sorted + 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+                    {
+                        $adjusted_choice = $adjusted_choice_in_rank_sequence_position[ $sequence_position ] ;
+                        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                        print LOGOUT "[  for choice " . $actual_choice . " row score is " . $row_score_for_adjusted_choice[ $adjusted_choice ] . " and column score is " . $column_score_for_adjusted_choice[ $adjusted_choice ] . "]\n" ;
+                    }
+                    print LOGOUT "\n" ;
+                }
+
+
+#-----------------------------------------------
+#  Finish skipping ahead if the last choice has
+#  been sorted.
+
+            }
+
+
+#-----------------------------------------------
+#  Repeat the loop that is repeated only if there
+#  is a tie.
+
+        }
+
+
+#-----------------------------------------------
+#  Repeat the loop that identifies which choice to
+#  sort next.
+
+    }
+
+
+#-----------------------------------------------
+#  Normalize the results.
+
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $global_rank_to_normalize_for_adjusted_choice[ $adjusted_choice ] = $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] ;
+    }
+    &normalize_ranking( ) ;
+    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, final normalized ranking levels]\n" } ;
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $ranking_level = $global_rank_to_normalize_for_adjusted_choice[ $adjusted_choice ] ;
+        $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] = $ranking_level ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, choice " . $actual_choice . " at normalized rank level " . $ranking_level . "]\n" } ;
+    }
+
+
+#-----------------------------------------------
+#  Log the calculated ranking levels.
+
+    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice-score, final results:]\n" } ;
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[  choice " . $actual_choice . " is at ranking level " . $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] . "]\n" } ;
+    }
+
+
+#-----------------------------------------------
+#  End of subroutine.
+
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[choice-score, exiting calc_votefair_choice_specific_pairwise_score_popularity_rank subroutine]\n\n" } ;
+    return ;
+
+}
+
+
+
+=head2 calc_votefair_insertion_sort_popularity_rank
+
+(Not exported, for internal use only.)
+
+Calculates VoteFair popularity ranking results
+using the "insertion-sort" sorting algorithm.
+
+VoteFair popularity ranking is described in
+Wikipedia, and is mathematically equivalent
+to the Condorcet-Kemeny method.  The
+following comments explain the algorithm used
+here, which quickly calculates the ranking
+results.  This explanation is important
+because some academic sources claim that
+the computations cannot be done quickly if
+there is a large number of choices being
+ranked.
+
+Although the goal of VoteFair popularity
+ranking is to find the sequence that has the
+highest sequence score, the scores themselves
+do not need to be calculated.  This
+concept is similar to not needing to know the
+elevation of every point in a region in order
+to know that a specific mountain peak  is the
+highest elevation in that region.  By not
+calculating all the sequence scores, the
+calculation time can be greatly reduced
+compared to the method that calculates all the
+sequence scores.
+
+The algorithm described here assumes that
+the choices already have been pre-sorted using
+the Choice-Specific Pairwise-Score (CSPS)
+algorithm.  That algorithm is part of this
+full calculation algorithm.
+
+The full algorithm repeatedly uses a
+variation of the "insertion-sort" sorting
+algorithm, so that algorithm is described
+first.
+
+Insertion-sort algorithm applied to finding
+maximum sequence score:
+
+This explanation clarifies how the
+well-known insertion-sort algorithm is applied
+to VoteFair popularity ranking in a way that
+greatly reduces the number of calculations
+needed to find maximum sequence scores. 
+(This  method is just part of the full
+algorithm, which is explained in the next
+section.)
+
+Consider an example in which there are five
+choices named A, B, C, D, and E, with a final
+sort order that matches this alphabetical
+order.
+
+Notation: The notation A>B refers to how
+many voters pairwise prefer choice A over
+choice B, and the notation B>A refers to how
+many voters pairwise prefer choice B over
+choice A.  This notation always uses the
+"greater-than" symbol ">", and never uses
+the "less-than" symbol "<".
+
+At an intermediate stage in this sorting
+example, suppose that the choices A, C, and E
+have been sorted -- into this correct
+order -- and choice B is about to be
+sorted, and choice D remains unsorted. 
+The pairwise counts for this arrangement are
+shown below.  The asterisks show the
+separation between sorted choices and unsorted
+choices.
+
+      |       |       |       |       |       |
+      |   A   |   C   |   E   |   B   |   D   |
+      |       |       |       |       |       |
+ -----*************************-------+-------+
+      * \     |       |       *       |       |
+  A   *   \   |  A>C  |  A>E  *  A>B  |  A>D  |
+      *     \ |       |       *       |       |
+ -----+-------+-------+-------+-------+-------+
+      *       | \     |       *       |       |
+  C   *  C>A  |   \   |  C>E  *  C>B  |  C>D  |
+      *       |     \ |       *       |       |
+ -----+-------+-------+-------+-------+-------+
+      *       |       | \     *       |       |
+  E   *  E>A  |  E>C  |   \   *  E>B  |  E>D  |
+      *       |       |     \ *       |       |
+ -----*************************-------+-------+
+      |       |       |       | \     |       |
+  B   |  B>A  |  B>C  |  B>E  |   \   |  B>D  |
+      |       |       |       |     \ |       |
+ -----+-------+-------+-------+-------+-------+
+      |       |       |       |       | \     |
+  D   |  D>A  |  D>C  |  D>E  |  D>B  |   \   |
+      |       |       |       |       |     \ |
+ -----+-------+-------+-------+-------+-------+
+
+The diagonal line passes through empty cells
+-- that would otherwise represent a
+choice's comparison with itself, such as
+A>A.
+
+The diagonal line also is the border between
+the upper-right triangular area and the
+lower-left triangular area.  The sequence
+score for the current sequence is the sum of
+all the pairwise counts in the upper-right
+triangular area (currently A>C + A>E +
+A>B + A>D + C>E + C>B + C>D +
+E>B + E>D + B>D).
+
+The goal of these calculations is to find
+the maximum sequence score, which means the
+goal is to change the sequence so that the
+largest pairwise counts move into the
+upper-right triangular area, leaving the
+smallest pairwise counts in the lower-left
+triangular area.
+
+The first step in sorting choice B is to
+consider the possibility of moving it to the
+left of choice E, which would form the sequence
+A, C, B, E.  Here is the pairwise-count
+matrix for this sequence.  The asterisks
+now include choice B because this is a possible
+sort order.
+
+      |       |       |       |       |       |
+      |   A   |   C   |   B   |   E   |   D   |
+      |       |       |       |       |       |
+ -----*********************************-------+
+      * \     |       |       |       *       |
+  A   *   \   |  A>C  |  A>B  |  A>E  *  A>D  |
+      *     \ |       |       |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       | \     |       |       *       |
+  C   *  C>A  |   \   |  C>B  |  C>E  *  C>D  |
+      *       |     \ |       |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       | \     |       *       |
+  B   *  B>A  |  B>C  |   \   |  B>E  *  B>D  |
+      *       |       |     \ |  ---  *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       |       | \     *       |
+  E   *  E>A  |  E>C  |  E>B  |   \   *  E>D  |
+      *       |       |  ---  |     \ *       |
+ -----*********************************-------+
+      |       |       |       |       | \     |
+  D   |  D>A  |  D>C  |  D>B  |  D>E  |   \   |
+      |       |       |       |       |     \ |
+ -----+-------+-------+-------+-------+-------+
+
+The only pairwise counts that crossed the
+diagonal line are the (underlined) counts
+B>E and E>B, which swapped places. 
+All the other pairwise counts that move do not
+cross the diagonal line; they stay on the same
+side of the diagonal line.
+
+As a result, the score for this sequence,
+compared to the score for the previous
+sequence, increases (or decreases if negative)
+by the amount B>E minus E>B.  In
+this case (assuming there are no complications
+that are explained later) the sequence score
+has increased because in the final
+(alphabetical) sort order, choice B appears
+before choice E.
+
+The next step in sorting choice B is to
+consider the possibility of moving it to the
+left of choice C, which would form the sequence
+A, B, C, E.  Here is the pairwise-count
+matrix for this sequence.
+
+      |       |       |       |       |       |
+      |   A   |   B   |   C   |   E   |   D   |
+      |       |       |       |       |       |
+ -----*********************************-------+
+      * \     |       |       |       *       |
+  A   *   \   |  A>B  |  A>C  |  A>E  *  A>D  |
+      *     \ |       |       |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       | \     |       |       *       |
+  B   *  B>A  |   \   |  B>C  |  B>E  *  B>D  |
+      *       |     \ |  ---  |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       | \     |       *       |
+  C   *  C>A  |  C>B  |   \   |  C>E  *  C>D  |
+      *       |  ---  |     \ |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       |       | \     *       |
+  E   *  E>A  |  E>B  |  E>C  |   \   *  E>D  |
+      *       |       |       |     \ *       |
+ -----*********************************-------+
+      |       |       |       |       | \     |
+  D   |  D>A  |  D>B  |  D>C  |  D>E  |   \   |
+      |       |       |       |       |     \ |
+ -----+-------+-------+-------+-------+-------+
+
+The only pairwise counts that crossed the
+diagonal line are the (underlined) counts
+B>C and C>B, which swapped places. 
+The other pairwise counts that moved remained
+on the same side of the diagonal line.
+
+The score for this sequence increases (or
+decreases if negative) by the amount B>C
+minus C>B.  In this case the sequence
+score has increased because (in the final
+alphabetical order) choice B appears before
+choice C.
+
+The final step in sorting choice B is to
+consider the possibility of moving it to the
+left of choice A, which would form the sequence
+B, A, C, E.  Here is the matrix for this
+sequence.
+
+      |       |       |       |       |       |
+      |   B   |   A   |   C   |   E   |   D   |
+      |       |       |       |       |       |
+ -----*********************************-------+
+      * \     |       |       |       *       |
+  B   *   \   |  B>A  |  B>C  |  B>E  *  B>D  |
+      *     \ |  ---  |       |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       | \     |       |       *       |
+  A   *  A>B  |   \   |  A>C  |  A>E  *  A>D  |
+      *  ---  |     \ |       |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       | \     |       *       |
+  C   *  C>B  |  C>A  |   \   |  C>E  *  C>D  |
+      *       |       |     \ |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       |       | \     *       |
+  E   *  E>B  |  E>A  |  E>C  |   \   *  E>D  |
+      *       |       |       |     \ *       |
+ -----*********************************-------+
+      |       |       |       |       | \     |
+  D   |  D>B  |  D>A  |  D>C  |  D>E  |   \   |
+      |       |       |       |       |     \ |
+ -----+-------+-------+-------+-------+-------+
+
+The only pairwise counts that crossed the
+diagonal line are the (underlined) counts
+B>A and A>B, which swapped places. 
+The other pairwise counts that moved remained
+on the same side of the diagonal line.
+
+The score for this sequence increases (or
+decreases if negative) by the amount B>A
+minus A>B.  In this case the sequence
+score has decreased because (in the final
+alphabetical order) choice B appears after, not
+before, choice A.
+
+At this point choice B has been tested at
+each position within the sorted portion. 
+The  maximum sequence score (for the sorted
+portion) occurred when it was between choices A
+and C.  As a result, choice B will be
+moved to the position between choices A and
+C.
+
+Notice that the full sequence score did not
+need to be calculated in order to find this
+"local" maximum.  These calculations only
+need to keep track of increases and decreases
+that occur as the being-sorted choice swaps
+places with successive already-sorted
+choices.
+
+The pairwise-count matrix with choice B in
+the second sort-order position (between A and
+C) is shown below.  Now choice D is the
+only unsorted choice.
+
+      |       |       |       |       |       |
+      |   A   |   B   |   C   |   E   |   D   |
+      |       |       |       |       |       |
+ -----*********************************-------+
+      * \     |       |       |       *       |
+  A   *   \   |  A>B  |  A>C  |  A>E  *  A>D  |
+      *     \ |       |       |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       | \     |       |       *       |
+  B   *  B>A  |   \   |  B>C  |  B>E  *  B>D  |
+      *       |     \ |       |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       | \     |       *       |
+  C   *  C>A  |  C>B  |   \   |  C>E  *  C>D  |
+      *       |       |     \ |       *       |
+ -----*-------+-------+-------+-------*-------+
+      *       |       |       | \     *       |
+  E   *  E>A  |  E>B  |  E>C  |   \   *  E>D  |
+      *       |       |       |     \ *       |
+ -----*********************************-------+
+      |       |       |       |       | \     |
+  D   |  D>A  |  D>B  |  D>C  |  D>E  |   \   |
+      |       |       |       |       |     \ |
+ -----+-------+-------+-------+-------+-------+
+
+Choice D would be sorted in the same
+way.  Of course the maximum sequence score
+would occur when choice D is between choices C
+and E, so D is moved there.
+
+      |       |       |       |       |       |
+      |   A   |   B   |   C   |   D   |   E   |
+      |       |       |       |       |       |
+ -----*****************************************
+      * \     |       |       |       |       *
+  A   *   \   |  A>B  |  A>C  |  A>D  |  A>E  *
+      *     \ |       |       |       |       *
+ -----*-------+-------+-------+-------+-------*
+      *       | \     |       |       |       *
+  B   *  B>A  |   \   |  B>C  |  B>D  |  B>E  *
+      *       |     \ |       |       |       *
+ -----*-------+-------+-------+-------+-------*
+      *       |       | \     |       |       *
+  C   *  C>A  |  C>B  |   \   |  C>D  |  C>E  *
+      *       |       |     \ |       |       *
+ -----*-------+-------+-------+-------+-------*
+      *       |       |       | \     |       *
+  D   *  D>A  |  D>B  |  D>C  |   \   |  D>E  *
+      *       |       |       |     \ |       *
+ -----*-------+-------+-------+-------+-------*
+      *       |       |       |       | \     *
+  E   *  E>A  |  E>B  |  E>C  |  E>D  |   \   *
+      *       |       |       |       |     \ *
+ -----*****************************************
+
+Now there are no more choices to sort, so
+the resulting sequence is A, B, C, D, E. 
+In this sequence the full sequence score
+-- which equals A>B + A>C + A>D +
+A>E + B>C + B>D + B>E + C>D +
+C>E + D>E -- is likely to be the
+highest possible sequence score.
+
+Additional calculations, as described below,
+are needed because in rare cases it is possible
+that moving two or more choices at the same
+time could produce a higher sequence
+score.  This concept is analogous to
+climbing a mountain in foggy conditions by
+always heading in the locally higher direction
+and ending up at the top of a peak and then,
+when the fog clears, seeing a higher peak.
+
+Full calculation method for VoteFair popularity ranking:
+
+This is a description of the full algorithm
+used to calculate VoteFair popularity ranking
+results.
+
+The algorithm begins by calculating the
+Choice-Specific Pairwise-Score ranking. 
+This pre-sort is a required part of the
+process.  Without it, some unusual cases
+can cause the calculations to fail to find the
+sequence with the highest score.  This
+pre-sort is analogous to starting a search for
+the highest mountain peak within a mountain
+range instead of starting the search within a
+large valley.
+
+The next step is to apply the insertion-sort
+method as described in the section above,
+including starting at the left/highest end.
+
+To ensure that all possible moves of each
+choice are considered, the insertion-sort
+method is done in both directions. 
+Sorting in both directions means that in some
+sorting passes sorting moves choices to the
+left, as explained in the above example. 
+In other sorting passes sorting starts by
+considering the right-most choice as the first
+sorted choice, and choices move to the right,
+into the sorted portion.  This convention
+ensures movement for choices that need to move
+right, instead of left, in order to cause an
+increase in the score.
+
+Complications can arise when there is
+"circular ambiguity", so additional steps are
+used.  The most common cases of circular
+ambiguity involve several choices that are tied
+for the same sort-order position.
+
+A key part of dealing with circular
+ambiguity is to follow this convention:
+whenever a choice can produce the same,
+highest, sequence score at more than one
+position, the choice is moved to the farthest
+of those highest-sequence-score positions.
+
+Another part of dealing with these
+complications is to sort the sequence multiple
+times.
+
+During the second sorting pass, if there is
+no circular ambiguity, the sequence of the
+choices in the pairwise matrix remains the
+same.  This lack of movement (when there
+is no circular ambiguity) occurs because the
+sorted and unsorted portions are
+adjacent.  Specifically, each choice to be
+sorted is already at the top (for left-movement
+sorting) or bottom (for right-movement sorting)
+of the "unsorted" portion, and it is being
+moved to the bottom (for left-movement sorting)
+or top (for right-movement sorting) of
+the "sorted" portion.  In such cases
+the only thing that moves is the boundary
+between the sorted choices and unsorted
+choices.
+
+However, in cases that involve circular
+ambiguity, the positions of some choices will
+change during the second and later sorting
+passes.  This happens because the
+convention (as explained above) is to move each
+choice as far as it will go, within the limits
+of maximizing the sequence score.
+
+During the sorting passes the highest
+sort-order (sequence) position of each choice
+is tracked, and the lowest sort-order position
+of each choice is tracked.  These highest
+and lowest positions are reset (to current
+positions) whenever the sequence score
+increases to a higher score.  At the end
+of the sorting process the highest and lowest
+positions reveal which choices are tied at the
+same popularity ranking level.
+
+Using the insertion-sort example, if choices
+B, C, and D can be in any order and still
+produce the same highest sequence score, then
+each of these choices would move to the left of
+the other two each time it is sorted, and each
+of these choices would have the same
+highest-ranked position of second place, and
+each would have the same lowest-ranked position
+of fourth place. Because these three choices
+have the same highest and lowest positions,
+they are easily identified as tied (at the same
+popularity ranking).
+
+More complex cases of circular ambiguity can
+occur.  To deal with these cases, and to
+ensure the correctness of the "winner" (the
+most popular choice), the sorting process is
+repeated for the top half (plus one) of the
+highest-ranked choices, and this sub-set
+sorting is repeated until there are just three
+choices.  For example, if there are 12
+choices, the sorting process is done for 12
+choices, then the top 7 choices, then the top 4
+choices, and finally the top 3 choices. 
+Then the highest-ranked choice (or the choices
+that are tied at the top) is kept at the
+highest rank while the other choices are sorted
+a final time.  (If, instead, the
+least-popular choice is the most important one
+to identify correctly, the data supplied to
+this algorithm can be inverted according to
+preference levels, and then the calculated
+ranking can be reversed.)
+
+As a clarification, the extra sub-set
+sorting is done only if more than one sequence
+has the same highest sequence score.  This
+point is significant if the distinction between
+VoteFair popularity ranking and the
+Condorcet-Kemeny method is relevant. 
+Specifically, the Condorcet-Kemeny method does
+not indicate how such "tied" sequence scores
+should be resolved, whereas VoteFair popularity
+ranking resolves such "tied" sequence scores as
+part of its calculation process.
+
+After all the sorting has been done, the
+highest and lowest ranking levels are used to
+determine the results.  For each choice
+its highest and lowest ranking levels
+are added together (which equals twice their
+average) and then multiplied times a
+constant.  The constant equals 10 times
+the number of choices minus one.  These
+numbers are converted to integers, and then
+these "averaged scaled integerized" values are
+used as the non-normalized ranking
+levels.  Two or more choices are ranked at
+the same level if they have the same
+"averaged-scaled-integerized" ranking
+values.
+
+The final calculation step is to normalize
+the "averaged-scaled-integerized" ranking
+levels so that the normalized ranking levels
+are consecutive, namely 1, 2, 3, etc. (so that
+no ranking levels are skipped).
+
+The result is a ranking that identifies
+which choice is first-most popular, which
+choice is second-most popular, and so on down
+to which choice is least popular.  Ties
+can occur at any level.
+
+Calculation time:
+
+The full algorithm used to calculate
+VoteFair popularity ranking results  has a
+calculation time that is less than or equal to
+the following polynomial function:
+
+  T = A + ( B * N ) + ( C * ( N * N ) )
+
+where T is the calculation time, N is the
+number of choices, and A and B and C are
+constants.  (In mathematical notation, N *
+N would be written as N squared.)  This
+function includes the calculation time required
+for the Choice-Specific Pairwise-Score (CSPS)
+pre-sort calculations.
+
+This time contrasts with the slow execution
+times  of the "NP-hard" approach, in which
+every sequence score is calculated in order to
+find the sequence with the highest score. 
+If every sequence score were calculated (from
+scratch), the calculation time would be
+proportional to:
+
+  N! * N * N
+
+where N is the number of choices, N! is N
+factorial (2 * 3 * 4 * ... * N), and N * N
+equals N squared.  Note that N factorial
+equals the number of possible sequences, and N
+squared times one-half approximately equals the
+number of pairwise counts that are added to
+calculate each sequence score.
+
+This clarification about calculation time is
+included because there is an academically
+common -- yet mistaken -- belief that
+calculating the "Condorcet-Kemeny method" is
+"NP-hard" and cannot be calculated in a time
+that is proportional to a polynomial function
+of N (the number of choices).
+
+(c) Copyright 2011 Richard Fobes at VoteFair.org
+
+(This description copied from VoteFair.org
+with permission.)
+
+=cut
+
+#-----------------------------------------------
+#-----------------------------------------------
+#            calc_votefair_insertion_sort_popularity_rank
+#-----------------------------------------------
+#-----------------------------------------------
+
+sub calc_votefair_insertion_sort_popularity_rank
+{
+
+    my $adjusted_choice ;
+    my $adjusted_choice_to_move ;
+    my $new_adjusted_choice ;
+    my $new_adjusted_choice_count ;
+    my $starting_adjusted_choice_number ;
+    my $local_adjusted_choice_count ;
+    my $tally_adjusted_choice_for_choice_to_move ;
+    my $tally_adjusted_choice_for_choice_at_destination ;
+    my $actual_choice ;
+    my $actual_choice_to_move ;
+    my $actual_choice_at_destination ;
+    my $count_of_choices_in_top_half ;
+    my $number_of_choices_to_shift ;
+    my $sequence_position ;
+    my $destination_sequence_position ;
+    my $source_sequence_position ;
+    my $to_position ;
+    my $from_position ;
+    my $position_of_choice_to_move ;
+    my $position_number ;
+    my $actual_destination ;
+    my $possible_destination ;
+    my $maximum_move_distance_allowed ;
+    my $direction_increment ;
+    my $distance_to_possible_destination ;
+    my $number_of_positions_sorted ;
+    my $ranking_level ;
+    my $special_ranking_level ;
+    my $highest_rank ;
+    my $lowest_rank ;
+    my $choice_counter ;
+    my $pair_counter ;
+    my $score_increase ;
+    my $tally_choice_to_move_over_choice_at_destination ;
+    my $tally_choice_at_destination_over_choice_to_move ;
+    my $largest_subset_sum ;
+    my $final_stage_reached_at_main_loop_count ;
+    my $pass_number ;
+    my $sort_pass_counter ;
+    my $sort_pass_count_at_last_move ;
+    my $sort_pass_counter_maximum ;
+    my $recent_sort_pass_count_in_direction_left ;
+    my $recent_sort_pass_count_in_direction_right ;
+    my $pass_count_at_last_score_increase ;
+    my $reached_stable_condition_at_pass_count ;
+    my $count_of_sequences_with_same_highest_score ;
+    my $main_loop_count ;
+    my $main_loop_maximum_count ;
+    my $scale_value ;
+    my $true_or_false_log_details ;
+    my $highest_rank_threshold ;
+    my $count_of_highest_ranked_choices ;
+    my $count_of_lower_ranked_choices ;
+    my $adjusted_choice_overall ;
+    my $possible_ranking_level ;
+    my $actual_first_choice ;
+    my $actual_second_choice ;
+    my $tally_adjusted_first_choice ;
+    my $tally_adjusted_second_choice ;
+    my $tally_first_over_second ;
+    my $tally_second_over_first ;
+
+    my @local_actual_choice_for_adjusted_choice ;
+    my @actual_choice_at_new_adjusted_choice ;
+    my @actual_choice_in_insertion_rank_sequence_position ;
+    my @highest_insertion_sort_sequence_position_for_actual_choice ;
+    my @lowest_insertion_sort_sequence_position_for_actual_choice ;
+    my @pass_number_at_last_rerank_for_adjusted_choice ;
+    my @adjusted_choice_count_at_stage ;
+    my @highest_ranked_actual_choice_at_count ;
+    my @lower_ranked_actual_choice_at_count ;
+    my @local_adjusted_choice_for_actual_choice ;
+
+
+#-----------------------------------------------
+#  Hide or show the details in the log file.
+#  This choice can slow down the software
+#  because it creates a large log file.
+
+    $true_or_false_log_details = $global_false ;
+    $true_or_false_log_details = $global_true ;
+    if ( $global_logging_info == $global_true )
+    {
+        print LOGOUT "[insertion sort, beginning calc_votefair_insertion_sort_popularity_rank subroutine]\n\n" ;
+        if ( $true_or_false_log_details == $global_true )
+        {
+            print LOGOUT "[insertion sort, details shown (change flag value to hide details)]\n" ;
+        } else
+        {
+            print LOGOUT "[insertion sort, details hidden (change flag value to view details)]\n" ;
+        }
+    }
+
+
+#-----------------------------------------------
+#  Set the results to zero in case an error is
+#  encountered.
+
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $global_insertion_sort_popularity_rank_for_actual_choice[ $actual_choice ] = 0 ;
+        $pass_number_at_last_rerank_for_adjusted_choice[ $adjusted_choice ] = 0 ;
+    }
+
+
+#-----------------------------------------------
+#  If there are not at least two choices,
+#  indicate an error.
+
+    if ( $global_adjusted_choice_count < 2 )
+    {
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, ERROR: number of (adjusted) choices is less than two]\n" } ;
+        return ;
+    }
+
+
+#-----------------------------------------------
+#  If the total vote count is zero, indicate an
+#  error.
+
+    if ( $global_current_total_vote_count < 1 )
+    {
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, ERROR: number of votes is zero]\n" } ;
+        return ;
+    }
+
+
+#-----------------------------------------------
+#  Initialize the choice sequence.  Use the
+#  sequence calculated by the choice-specific
+#  score-based ranking calculations.
+#
+#  In case there are no results from those calculations,
+#  initialize the sequence to be in numeric
+#  order (choice 1, choice 2, etc.).
+#  However, in complex cases, numeric order
+#  may produce the wrong results!
+
+    for ( $sequence_position = 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+    {
+        $adjusted_choice = $sequence_position ;
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] = $actual_choice ;
+    }
+    $adjusted_choice = 1 ;
+    $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+    if ( ( defined( $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] ) ) && ( $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] > 0 ) )
+    {
+        $sequence_position = 1 ;
+        for ( $ranking_level = 1 ; $ranking_level <= $global_adjusted_choice_count ; $ranking_level ++ )
+        {
+            for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+            {
+                $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                if ( $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] == $ranking_level )
+                {
+                    $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] = $actual_choice ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, put choice " . $actual_choice . " into sequence position " . $sequence_position . "]\n" } ;
+                    $sequence_position ++ ;
+                    if ( $sequence_position > $global_adjusted_choice_count )
+                    {
+                        last ;
+                    }
+                }
+            }
+        }
+    } else
+    {
+        $global_output_warning_messages_case_or_question_specific .= $global_question_specific_warning_begin . " triggered-program-bug" . "\n-----\n\n" ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[ERROR: the results of the choice-specific score-based calculations are not available, so the results might not be correct!]\n" } ;
+    }
+
+
+#-----------------------------------------------
+#  For debugging, display the tally numbers in
+#  an array/matrix arrangement.
+
+    if ( $true_or_false_log_details == $global_true )
+    {
+        for ( $sequence_position = 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+        {
+            $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] ;
+            $global_log_info_choice_at_position[ $sequence_position ] = $actual_choice ;
+        }
+        print LOGOUT "[insertion sort, initial ranking:]\n" ;
+        &internal_view_matrix( ) ;
+    }
+
+
+#-----------------------------------------------
+#  Use a local value for the adjusted choice
+#  count.  This allows the count to change.
+
+    $local_adjusted_choice_count = $global_adjusted_choice_count ;
+
+
+#-----------------------------------------------
+#  Create lists that associate adjusted choice
+#  numbers with actual choice numbers, in both
+#  directions.  These local values are used
+#  instead of the global values because these
+#  adjusted choice numbers will change.
+
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] = $actual_choice ;
+        $local_adjusted_choice_for_actual_choice[ $actual_choice ] = $adjusted_choice ;
+    }
+
+
+#-----------------------------------------------
+#  Begin a loop that repeats in order to handle
+#  the different stages in the calculations,
+#  where the different stages sort either all
+#  the choices or a subset of the choices.
+#  This loop does not exit here; it exits when
+#  the stages are all done.
+#  Note that this loop is only repeated if
+#  more than one sequence has the same highest
+#  sequence score.
+
+    $global_sequence_score_using_insertion_sort_method = 0 ;
+    $count_of_sequences_with_same_highest_score = 0 ;
+    $final_stage_reached_at_main_loop_count = 0 ;
+    $main_loop_maximum_count = 10 ;
+    for ( $main_loop_count = 1 ; $main_loop_count <= $main_loop_maximum_count ; $main_loop_count ++ )
+    {
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, main-loop number is " . $main_loop_count . "]\n" } ;
+
+
+#-----------------------------------------------
+#  If this is the "starting" stage, sort all the
+#  choices (starting with the sort order
+#  calculated by the choice-specific score-based
+#  method).
+
+        if ( $main_loop_count == 1 )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, first/start stage, so sorting all choices]\n\n" } ;
+        }
+
+
+#-----------------------------------------------
+#  If the final stage is complete, exit the loop.
+
+        if ( ( $final_stage_reached_at_main_loop_count > 0 ) && ( $main_loop_count >= $final_stage_reached_at_main_loop_count ) )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, final stage done, so exiting main loop]\n\n" } ;
+            last ;
+        }
+
+
+#-----------------------------------------------
+#  If at least one pass of sorting has been done
+#  and the total number of choices is 2, the
+#  sorting is done, so exit the main loop.
+
+        if ( ( $main_loop_count > 1 ) && ( $global_adjusted_choice_count <= 2 ) )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, choice count is just one or two, sorting is done, so exiting main loop]\n" } ;
+            last ;
+        }
+
+
+#-----------------------------------------------
+#  If this is not the starting stage, and is not
+#  the final stage (checked above), and at least
+#  one pass of sub-sorting has been done, and
+#  the number of sub-sorted choices is now 3 or
+#  less, request starting the final stage.
+
+        if ( ( $main_loop_count > 1 ) && ( $local_adjusted_choice_count <= 3 ) && ( $local_adjusted_choice_count < $global_adjusted_choice_count ) )
+        {
+            $final_stage_reached_at_main_loop_count = $main_loop_count ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, count of choices just sub-sorted (" . $local_adjusted_choice_count . ") is three or less, so starting final stage]\n" } ;
+        }
+
+
+#-----------------------------------------------
+#  If this is not the starting stage, and is not the
+#  final stage, attempt to reduce the number
+#  of choices being sorted.  Identify the choices
+#  in the top half, plus the next-ranked choice.
+#  If appropriate, these choices will be sub-sorted.
+
+        if ( ( $main_loop_count > 1 ) && ( $local_adjusted_choice_count > 3 ) )
+        {
+            $new_adjusted_choice_count = int( ( $local_adjusted_choice_count / 2 ) + 1 ) ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, finding " . $new_adjusted_choice_count . " choices at highest rankings]\n" } ;
+            for ( $adjusted_choice = 1 ; $adjusted_choice <= $local_adjusted_choice_count ; $adjusted_choice ++ )
+            {
+                $actual_choice = $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                $actual_choice_at_new_adjusted_choice[ $adjusted_choice ] = 0 ;
+            }
+            $count_of_choices_in_top_half = 0 ;
+            for ( $highest_rank_threshold = 1 ; $highest_rank_threshold <= $local_adjusted_choice_count ; $highest_rank_threshold ++ )
+            {
+                for ( $adjusted_choice = 1 ; $adjusted_choice <= $local_adjusted_choice_count ; $adjusted_choice ++ )
+                {
+                    $actual_choice = $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                    $highest_rank = $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] ;
+                    if ( $highest_rank == $highest_rank_threshold )
+                    {
+                        $count_of_choices_in_top_half ++ ;
+                        $new_adjusted_choice = $count_of_choices_in_top_half ;
+                        $actual_choice_at_new_adjusted_choice[ $new_adjusted_choice ] = $actual_choice ;
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[  choice " . $actual_choice . " (at ranking level " . $highest_rank . ") will be sub-sorted as adjusted choice " . $new_adjusted_choice . "]\n" } ;
+                    }
+                }
+                if ( $count_of_choices_in_top_half >= $new_adjusted_choice_count )
+                {
+                    last ;
+                }
+            }
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, found " . $count_of_choices_in_top_half . " choices at highest rankings]\n" } ;
+
+
+#-----------------------------------------------
+#  If the just-calculated number of choices to be
+#  sub-sorted is less than three, or has not
+#  changed (been reduced), request starting the final
+#  stage (which will sort all the choices except
+#  the highest-ranked choice).
+
+            if ( $count_of_choices_in_top_half < 3 )
+            {
+                $final_stage_reached_at_main_loop_count = $main_loop_count ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, count of choices to sub-sort (" . $local_adjusted_choice_count . ") is less than three, so starting final stage]\n" } ;
+            } elsif ( $count_of_choices_in_top_half == $local_adjusted_choice_count )
+            {
+                $final_stage_reached_at_main_loop_count = $main_loop_count ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, count of choices to sub-sort (" . $local_adjusted_choice_count . ") did not change (which would cause an endless loop), so starting final stage]\n" } ;
+
+
+#-----------------------------------------------
+#  If the number of choices to be sub-sorted is
+#  less than the previous number of choices
+#  sorted, but is not less than three, prepare to sort them
+#  by shifting the specified number of top-ranked
+#  choices into the lowest-numbered sequence
+#  positions.
+
+            } else
+            {
+                $local_adjusted_choice_count = $count_of_choices_in_top_half ;
+                $adjusted_choice_count_at_stage[ $main_loop_count ] = $local_adjusted_choice_count ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, now adjusted choice count is " . $local_adjusted_choice_count . "]\n" } ;
+                for ( $adjusted_choice = 1 ; $adjusted_choice <= $local_adjusted_choice_count ; $adjusted_choice ++ )
+                {
+                    $actual_choice = $actual_choice_at_new_adjusted_choice[ $adjusted_choice ] ;
+                    $local_adjusted_choice_for_actual_choice[ $actual_choice ] = $adjusted_choice ;
+                    $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] = $actual_choice ;
+                    $sequence_position = $adjusted_choice ;
+                    $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] = $actual_choice ;
+                }
+            }
+        }
+
+
+#-----------------------------------------------
+#  If this is the final stage, identify the
+#  highest-ranked choices -- based on having
+#  been at the highest sequence position (during
+#  the most recent sorting pass) -- and save
+#  them separately.  Also create a list of the
+#  other choices.
+
+        if ( $final_stage_reached_at_main_loop_count == $main_loop_count )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, starting final stage]\n" } ;
+            $count_of_highest_ranked_choices = 0 ;
+            $count_of_lower_ranked_choices = 0 ;
+            for ( $adjusted_choice = 1 ; $adjusted_choice <= $local_adjusted_choice_count ; $adjusted_choice ++ )
+            {
+                $actual_choice = $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                if ( $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] == 1 )
+                {
+                    $count_of_highest_ranked_choices ++ ;
+                    $highest_ranked_actual_choice_at_count[ $count_of_highest_ranked_choices ] = $actual_choice ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, choice " . $actual_choice . " is at highest rank]\n" } ;
+                } else
+                {
+                    $count_of_lower_ranked_choices ++ ;
+                    $lower_ranked_actual_choice_at_count[ $count_of_lower_ranked_choices ] = $actual_choice ;
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $global_adjusted_choice_count ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $global_adjusted_choice_count ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, choice " . $actual_choice . " is at lower rank]\n" } ;
+                }
+            }
+
+
+#-----------------------------------------------
+#  If all the choices are tied at the highest
+#  level, indicate this situation and exit the
+#  main loop.
+
+            if ( $count_of_highest_ranked_choices == $global_adjusted_choice_count )
+            {
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, all the choices are tied at the highest level]\n" } ;
+                for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+                {
+                    $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = 1 ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = 1 ;
+                    $sequence_position = $actual_choice ;
+                    $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] = $actual_choice ;
+                    $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] = $actual_choice ;
+                    $local_adjusted_choice_for_actual_choice[ $actual_choice ] = $adjusted_choice ;
+                }
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, exiting main loop]\n" } ;
+                last ;
+            }
+
+
+#-----------------------------------------------
+#  If this is the final stage, put all the choices
+#  that are not at the highest rank into a sequence
+#  for final sorting.  Use the sequence calculated
+#  by VoteFair choice-specific score-based ranking.
+
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, preparing to sub-sort the choices that are not highest ranked]\n" } ;
+            $local_adjusted_choice_count = $global_adjusted_choice_count - $count_of_highest_ranked_choices ;
+            $new_adjusted_choice = 1 ;
+            for ( $adjusted_choice_overall = 1 ; $adjusted_choice_overall <= $global_adjusted_choice_count ; $adjusted_choice_overall ++ )
+            {
+                $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice_overall ] ;
+                if ( $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] > 1 )
+                {
+                    $local_adjusted_choice_for_actual_choice[ $actual_choice ] = $new_adjusted_choice ;
+                    $local_actual_choice_for_adjusted_choice[ $new_adjusted_choice ] = $actual_choice ;
+                    $new_adjusted_choice ++ ;
+                }
+            }
+            $sequence_position = 1 ;
+            for ( $possible_ranking_level = 1 ; $possible_ranking_level <= $global_adjusted_choice_count ; $possible_ranking_level ++ )
+            {
+                for ( $adjusted_choice = 1 ; $adjusted_choice <= $local_adjusted_choice_count ; $adjusted_choice ++ )
+                {
+                    $actual_choice = $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                    if ( $possible_ranking_level == $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] )
+                    {
+                        $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] = $actual_choice ;
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[  choice " . $actual_choice . " is at sequence position " . $sequence_position . " and is now adjusted choice " . $adjusted_choice . "]\n" } ;
+                        $sequence_position ++ ;
+                    }
+                }
+            }
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, will sort all other choices]\n" } ;
+        }
+
+
+#-----------------------------------------------
+#  Initialize the values that keep track of
+#  each choice's highest and lowest positions.
+
+        for ( $sequence_position = 1 ; $sequence_position <= $local_adjusted_choice_count ; $sequence_position ++ )
+        {
+            $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] ;
+            $adjusted_choice = $local_adjusted_choice_for_actual_choice[ $actual_choice ] ;
+            $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $sequence_position ;
+            $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $sequence_position ;
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, next in sequence is choice " . $actual_choice . "]\n" } ;
+        }
+
+
+#-----------------------------------------------
+#  Log the starting sequence.
+
+        if ( $true_or_false_log_details == $global_true )
+        {
+            print LOGOUT "\n[insertion sort, in sort-pass loop, starting sequence is: " ;
+            for ( $sequence_position = 1 ; $sequence_position <= $local_adjusted_choice_count ; $sequence_position ++ )
+            {
+                $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] ;
+                print LOGOUT $actual_choice . " , " ;
+            }
+            print LOGOUT "]\n" ;
+        }
+
+
+#-----------------------------------------------
+#  Initialize values that are used in the
+#  upcoming loop that repeatedly sorts the
+#  choices.
+
+        $direction_increment = 1 ;
+        $starting_adjusted_choice_number = 1 ;
+        $sort_pass_count_at_last_move = 0 ;
+        $sort_pass_counter_maximum = 10 ;
+        $pass_count_at_last_score_increase = 0 ;
+        $recent_sort_pass_count_in_direction_left = 0 ;
+        $recent_sort_pass_count_in_direction_right = 0 ;
+        $reached_stable_condition_at_pass_count = 0 ;
+
+
+#-----------------------------------------------
+#  Begin a loop that repeatedly sorts the
+#  choices.  Normally the loop does not reach
+#  the maximum loop count used here.
+
+        for ( $sort_pass_counter = 1 ; $sort_pass_counter <= $sort_pass_counter_maximum ; $sort_pass_counter ++ )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, sort pass counter = " . $sort_pass_counter . ", last left sort count is " . $recent_sort_pass_count_in_direction_left . ", last right sort count = " . $recent_sort_pass_count_in_direction_right . "]\n" } ;
+
+
+#-----------------------------------------------
+#  If there is just one choice, indicate its
+#  sort order, and exit the sort-pass loop.
+
+            if ( $local_adjusted_choice_count == 1 )
+            {
+                $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ 1 ] ;
+                $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = 1 ;
+                $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = 1 ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, only one choice, so no need to sort it]\n" } ;
+                last ;
+            }
+
+
+#-----------------------------------------------
+#  If there are just two choices, just look at
+#  the two relevant pairwise-count numbers,
+#  sort the two choices accordingly, and then
+#  exit the sort-pass loop.
+
+            if ( $local_adjusted_choice_count == 2 )
+            {
+                $actual_first_choice = $actual_choice_in_insertion_rank_sequence_position[ 1 ] ;
+                $actual_second_choice = $actual_choice_in_insertion_rank_sequence_position[ 2 ] ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, only two choices, " . $actual_second_choice . " and " . $actual_first_choice . "]\n" } ;
+                $tally_adjusted_first_choice = $global_adjusted_choice_for_actual_choice[ $actual_first_choice ] ;
+                $tally_adjusted_second_choice = $global_adjusted_choice_for_actual_choice[ $actual_second_choice ] ;
+                if ( $tally_adjusted_first_choice < $tally_adjusted_second_choice )
+                {
+                    $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $tally_adjusted_first_choice ] + $tally_adjusted_second_choice ;
+                    $tally_first_over_second = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                    $tally_second_over_first = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                } else
+                {
+                    $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $tally_adjusted_second_choice ] + $tally_adjusted_first_choice ;
+                    $tally_first_over_second = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                    $tally_second_over_first = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                }
+                if ( $tally_first_over_second == $tally_second_over_first )
+                {
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_first_choice ] = 1 ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_first_choice ] = 1 ;
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_second_choice ] = 1 ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_second_choice ] = 1 ;
+                    $actual_choice_in_insertion_rank_sequence_position[ 1 ] = $actual_first_choice ;
+                    $actual_choice_in_insertion_rank_sequence_position[ 2 ] = $actual_second_choice ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, choice " . $actual_first_choice . " and choice " . $actual_second_choice . " are tied as highest-ranked]\n" } ;
+                } elsif ( $tally_first_over_second > $tally_second_over_first )
+                {
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_first_choice ] = 1 ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_first_choice ] = 1 ;
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_second_choice ] = 2 ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_second_choice ] = 2 ;
+                    $actual_choice_in_insertion_rank_sequence_position[ 1 ] = $actual_first_choice ;
+                    $actual_choice_in_insertion_rank_sequence_position[ 2 ] = $actual_second_choice ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, choice " . $actual_first_choice . " is ranked higher than choice " . $actual_second_choice . "]\n" } ;
+                } else
+                {
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_first_choice ] = 2 ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_first_choice ] = 2 ;
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_second_choice ] = 1 ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_second_choice ] = 1 ;
+                    $actual_choice_in_insertion_rank_sequence_position[ 1 ] = $actual_second_choice ;
+                    $actual_choice_in_insertion_rank_sequence_position[ 2 ] = $actual_first_choice ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, choice " . $actual_second_choice . " is ranked higher than choice " . $actual_first_choice . "]\n" } ;
+                }
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, only two choices, they are now sorted]\n" } ;
+                last ;
+            }
+
+
+#-----------------------------------------------
+#  Exit the sorting process when there have
+#  been at least two sorting passes (one each
+#  direction) during which the total score has
+#  not increased, and then after two more
+#  passes to ensure the choices have all moved
+#  as far as possible in each direction.
+#  The "extra" sorting passes
+#  ensure that cycles ("ties") have had a
+#  chance to move the involved ("tied")
+#  choices to their highest and lowest
+#  position values.
+#  Also, when the sorted sequence is stable,
+#  set a counter that is used to determine
+#  if more than one sequence has the same
+#  highest sequence score.
+
+            if ( ( $sort_pass_counter >= $reached_stable_condition_at_pass_count + 2 ) && ( $reached_stable_condition_at_pass_count > 0 ) )
+            {
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, two extra sorting passes have been done (after stable condition reached), so exiting sorting process]\n\n" } ;
+                last ;
+            }
+            if ( ( $sort_pass_counter > $pass_count_at_last_score_increase + 1 ) && ( $recent_sort_pass_count_in_direction_left > $pass_count_at_last_score_increase ) && ( $recent_sort_pass_count_in_direction_right > $pass_count_at_last_score_increase ) && ( $recent_sort_pass_count_in_direction_left > 0 ) && ( $recent_sort_pass_count_in_direction_right > 0 ) && ( $reached_stable_condition_at_pass_count <= 0 ) )
+            {
+                $reached_stable_condition_at_pass_count = $sort_pass_counter ;
+                $count_of_sequences_with_same_highest_score = 1 ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, sorting has been done in both directions since the last score increase, so indicating stable condition, so will do two more sorting passes]\n" } ;
+            }
+
+
+#-----------------------------------------------
+#  Change the sorting direction for different
+#  sorting passes.  When the direction_increment
+#  value is positive one, the sorting starts at
+#  the highest-ranked (left) end and moves
+#  choices left (to the higher-ranked positions).
+#  When the direction_increment value is
+#  negative one, sorting starts at the
+#  lowest-ranked (right) end and moves choices
+#  to the right (to the lower-ranked positions).
+#  This symmetry ensures that tied choices pass
+#  through the same highest and lowest rank
+#  positions, and that each choice can move to
+#  every possible position.
+
+            if ( $sort_pass_counter == 1 )
+            {
+                $direction_increment = 1 ;
+            } elsif ( $sort_pass_counter == $reached_stable_condition_at_pass_count )
+            {
+                $direction_increment = $direction_increment * -1 ;
+            } elsif ( $sort_pass_counter == $reached_stable_condition_at_pass_count + 1 )
+            {
+                $direction_increment = $direction_increment * -1 ;
+            } elsif ( ( $sort_pass_counter == $sort_pass_count_at_last_move + 1 ) && ( $sort_pass_counter == $pass_count_at_last_score_increase + 2 ) )
+            {
+                $direction_increment = $direction_increment ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, keeping sort direction the same -- because last move was during pass count " . $sort_pass_count_at_last_move . " and last score increase was during pass count " . $pass_count_at_last_score_increase . "]\n\n" } ;
+            } else
+            {
+                $direction_increment = $direction_increment * -1 ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, changing to opposite sort direction]\n\n" } ;
+            }
+            if ( $direction_increment == 1 )
+            {
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, movement direction is left]\n\n" } ;
+            } else
+            {
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, movement direction is right]\n\n" } ;
+            }
+
+
+#-----------------------------------------------
+#  For each sorting direction, save the sorting
+#  pass number for the most recent sorting done
+#  in that direction.
+
+            if ( $direction_increment == 1 )
+            {
+                $recent_sort_pass_count_in_direction_left = $sort_pass_counter ;
+            } else
+            {
+                $recent_sort_pass_count_in_direction_right = $sort_pass_counter ;
+            }
+
+
+#-----------------------------------------------
+#  Begin a loop that moves each unsorted choice
+#  into the sorted segment.
+#  Start by regarding the choice in the
+#  highest-ranked (left-most) sequence position
+#  as being the first item in the sorted list.
+#  The "number_of_positions_sorted" value
+#  counts how many of the first (left-most)
+#  sequence positions have been sorted, so this
+#  number separates the sequence into a sorted
+#  list on the left and an unsorted list on
+#  the right.
+
+            for ( $number_of_positions_sorted = 1 ; $number_of_positions_sorted < $local_adjusted_choice_count ; $number_of_positions_sorted ++ )
+            {
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, number of positions sorted is " .  $number_of_positions_sorted . "]\n" } ;
+
+
+#-----------------------------------------------
+#  Identify which choice will be moved from the
+#  unsorted portion of the list into the sorted
+#  portion.
+
+                if ( $direction_increment == 1 )
+                {
+                    $position_of_choice_to_move = $number_of_positions_sorted + 1 ;
+                } else
+                {
+                    $position_of_choice_to_move = $local_adjusted_choice_count - $number_of_positions_sorted ;
+                }
+                $actual_choice_to_move = $actual_choice_in_insertion_rank_sequence_position[ $position_of_choice_to_move ] ;
+                $adjusted_choice_to_move = $local_adjusted_choice_for_actual_choice[ $actual_choice_to_move ] ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "\n" } ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, check if need to move choice " .  $actual_choice_to_move . "]\n" } ;
+
+
+#-----------------------------------------------
+#  If this choice has already traveled to the
+#  farthest position in this direction, skip
+#  this choice.
+
+                if ( $direction_increment == 1 )
+                {
+                    if ( $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] == 1 )
+                    {
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, choice " .  $adjusted_choice_to_move . " has already been to the highest ranking]\n" } ;
+                        next ;
+                    }
+                } else
+                {
+                    if ( $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] == $local_adjusted_choice_count )
+                    {
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, choice " .  $adjusted_choice_to_move . " has already been to the lowest ranking]\n" } ;
+                        next ;
+                    }
+                }
+
+
+#-----------------------------------------------
+#  Begin a loop that checks each sorted
+#  position as a possible destination for the
+#  unsorted choice being moved.
+
+                $maximum_move_distance_allowed = $number_of_positions_sorted ;
+                $actual_destination = $position_of_choice_to_move ;
+                $score_increase = 0 ;
+                $largest_subset_sum = -99999 ;
+                for ( $distance_to_possible_destination = 1 ; $distance_to_possible_destination <= $maximum_move_distance_allowed ; $distance_to_possible_destination ++ )
+                {
+                    if ( $direction_increment == 1 )
+                    {
+                        $possible_destination = $position_of_choice_to_move - $distance_to_possible_destination ;
+                    } else
+                    {
+                        $possible_destination = $position_of_choice_to_move + $distance_to_possible_destination ;
+                    }
+                    $actual_choice_at_destination = $actual_choice_in_insertion_rank_sequence_position[ $possible_destination ] ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, possible destination to far side of choice " .  $actual_choice_at_destination . "]" } ;
+
+
+#-----------------------------------------------
+#  Calculate the increase -- or decrease if
+#  negative -- in the sequence score that
+#  would occur if the unsorted choice was to be
+#  moved to the specified destination (within
+#  the sorted portion).  The subset sums already
+#  include the tally counts that apply to any
+#  already-checked positions between the moved
+#  choice and the target choice.
+#  This approach speeds up the calculation
+#  time compared to fully calculating each
+#  sequence score from scratch.
+
+                    $tally_adjusted_choice_for_choice_to_move = $global_adjusted_choice_for_actual_choice[ $actual_choice_to_move ] ;
+                    $tally_adjusted_choice_for_choice_at_destination = $global_adjusted_choice_for_actual_choice[ $actual_choice_at_destination ] ;
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[tally choice numbers: " . $actual_choice_to_move . " (" . $tally_adjusted_choice_for_choice_to_move . ") --> " . $actual_choice_at_destination . " (" . $tally_adjusted_choice_for_choice_at_destination . ")]" } ;
+                    if ( $tally_adjusted_choice_for_choice_to_move < $tally_adjusted_choice_for_choice_at_destination )
+                    {
+                        $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $tally_adjusted_choice_for_choice_to_move ] + $tally_adjusted_choice_for_choice_at_destination ;
+                        if ( $direction_increment == 1 )
+                        {
+                            $tally_choice_to_move_over_choice_at_destination = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                            $tally_choice_at_destination_over_choice_to_move = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                        } else
+                        {
+                            $tally_choice_to_move_over_choice_at_destination = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                            $tally_choice_at_destination_over_choice_to_move = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                        }
+                    } else
+                    {
+                        $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $tally_adjusted_choice_for_choice_at_destination ] + $tally_adjusted_choice_for_choice_to_move ;
+                        if ( $direction_increment == 1 )
+                        {
+                            $tally_choice_to_move_over_choice_at_destination = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                            $tally_choice_at_destination_over_choice_to_move = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                        } else
+                        {
+                            $tally_choice_to_move_over_choice_at_destination = $global_tally_first_over_second_in_pair[ $pair_counter ] ;
+                            $tally_choice_at_destination_over_choice_to_move = $global_tally_second_over_first_in_pair[ $pair_counter ] ;
+                        }
+                    }
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[tallies: " . $tally_choice_to_move_over_choice_at_destination . "  " . $tally_choice_at_destination_over_choice_to_move . "]" } ;
+                    $score_increase += $tally_choice_to_move_over_choice_at_destination - $tally_choice_at_destination_over_choice_to_move ;
+
+
+#-----------------------------------------------
+#  Keep track of which destination position
+#  would increase the sequence score by the
+#  largest positive amount, and regard that as
+#  the expected destination.
+#  If the choice being moved is at the same
+#  ranking level as another choice -- because
+#  it has the same sequence score -- then move
+#  the choice to the higher level (left-most
+#  position) so that the choices skip over
+#  each other, which is the characteristic
+#  that is used to keep track of equal
+#  rankings.
+
+                    if ( $score_increase > 0 )
+                    {
+                        $pass_count_at_last_score_increase = $sort_pass_counter ;
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[new highest score reached]" } ;
+                    }
+                    if ( $score_increase >= 0 )
+                    {
+                        if ( $score_increase > $largest_subset_sum )
+                        {
+                            $largest_subset_sum = $score_increase ;
+                            $actual_destination = $possible_destination ;
+                            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[new largest subset sum is " . $largest_subset_sum . "]\n" } ;
+                        } elsif ( $score_increase == $largest_subset_sum )
+                        {
+                            $actual_destination = $possible_destination ;
+                            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[equal tally sums, will move choice to farthest position]\n" } ;
+                        } else
+                        {
+                            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[current subset sum (" . $score_increase . ") is not largest]\n" } ;
+                        }
+                    } else
+                    {
+                        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[subset sum (" . $score_increase . ") is negative]\n" } ;
+                    }
+
+
+#-----------------------------------------------
+#  Repeat the loop that checks each position in
+#  the sorted list as a possible destination for
+#  the choice being moved.
+
+                }
+
+
+#-----------------------------------------------
+#  If the choice should remain where it is, skip
+#  over the next few sections of code (that
+#  would move the choice).
+#  After the choices have stabilized into a
+#  sorted sequence, this lack of movement will
+#  be typical because a "move" from the
+#  unsorted segment to the sorted segment does
+#  not involve a change in the sequence position,
+#  just a change in the boundary between the
+#  sorted and sorted segments (which are
+#  adjacent).
+
+                if ( $position_of_choice_to_move == $actual_destination )
+                {
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, no need to move choice " . $actual_choice_to_move . "]\n" } ;
+                } else
+                {
+
+
+#-----------------------------------------------
+#  Move the choice to the sequence position that
+#  produces the biggest increase in the overall
+#  sequence score.
+#  For the choices being skipped over (by the
+#  choice being moved), update their highest
+#  or lowest sequence position value -- if the
+#  move involves moving them outside of their
+#  previous range.
+
+                    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in sort-pass loop, need to move choice " . $actual_choice_to_move . " from position " . $position_of_choice_to_move . " to position " . $actual_destination . "]\n" } ;
+                    $count_of_sequences_with_same_highest_score ++ ;
+                    $sort_pass_count_at_last_move = $sort_pass_counter ;
+                    if ( $direction_increment == 1 )
+                    {
+                        $number_of_choices_to_shift = $position_of_choice_to_move - $actual_destination ;
+                    } else
+                    {
+                        $number_of_choices_to_shift = $actual_destination - $position_of_choice_to_move ;
+                    }
+                    for ( $position_number = 1 ; $position_number <= $number_of_choices_to_shift ; $position_number ++ )
+                    {
+                        if ( $direction_increment == 1 )
+                        {
+                            $from_position = $position_of_choice_to_move - $position_number ;
+                            $to_position = $from_position + 1 ;
+                        } else
+                        {
+                            $from_position = $position_of_choice_to_move + $position_number ;
+                            $to_position = $from_position - 1 ;
+                        }
+                        $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $from_position ] ;
+                        $actual_choice_in_insertion_rank_sequence_position[ $to_position ] = $actual_choice ;
+                        $adjusted_choice = $local_adjusted_choice_for_actual_choice[ $actual_choice ] ;
+                        if ( $to_position > $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] )
+                        {
+                            $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $to_position ;
+                            $pass_number_at_last_rerank_for_adjusted_choice[ $adjusted_choice ] = $sort_pass_counter ;
+                        }
+                        if ( $to_position < $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] )
+                        {
+                            $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $to_position ;
+                            $pass_number_at_last_rerank_for_adjusted_choice[ $adjusted_choice ] = $sort_pass_counter ;
+                        }
+                    }
+                    $actual_choice_in_insertion_rank_sequence_position[ $actual_destination ] = $actual_choice_to_move ;
+
+
+#-----------------------------------------------
+#  For the choice being moved, update its highest
+#  or lowest sequence position value -- if this
+#  move involves moving it outside of its
+#  previous range.
+#  The highest-and-lowest position information
+#  is needed to determine which choices are
+#  repeatedly skipping over each other, and that
+#  indicates which choices are tied, and at what
+#  ranking levels.
+
+                    if ( $actual_destination < $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] )
+                    {
+                        $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] = $actual_destination ;
+                        $pass_number_at_last_rerank_for_adjusted_choice[ $adjusted_choice_to_move ] = $sort_pass_counter ;
+                    }
+                    if ( $actual_destination > $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] )
+                    {
+                        $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] = $actual_destination ;
+                        $pass_number_at_last_rerank_for_adjusted_choice[ $adjusted_choice_to_move ] = $sort_pass_counter ;
+                    }
+
+
+#-----------------------------------------------
+#  For debugging, display the tally numbers in
+#  an array/matrix arrangement.
+
+                    if ( $true_or_false_log_details == $global_true )
+                    {
+                        if ( $local_adjusted_choice_count == $global_adjusted_choice_count )
+                        {
+                            for ( $sequence_position = 1 ; $sequence_position <= $local_adjusted_choice_count ; $sequence_position ++ )
+                            {
+                                $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] ;
+                                $global_log_info_choice_at_position[ $sequence_position ] = $actual_choice ;
+                            }
+                            &internal_view_matrix( ) ;
+                            if ( $global_sequence_score > $global_sequence_score_using_insertion_sort_method )
+                            {
+                                $global_sequence_score_using_insertion_sort_method = $global_sequence_score ;
+                                print LOGOUT "\n[insertion sort, new sequence score is: " . $global_sequence_score_using_insertion_sort_method . "]\n" ;
+                            }
+                        } else
+                        {
+                            print LOGOUT "\n[insertion sort, current sub-sort sequence is: " ;
+                            for ( $sequence_position = 1 ; $sequence_position <= $local_adjusted_choice_count ; $sequence_position ++ )
+                            {
+                                $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] ;
+                                print LOGOUT $actual_choice . " , " ;
+                            }
+                            print LOGOUT "]\n" ;
+                        }
+                    }
+
+
+#-----------------------------------------------
+#  Finish skipping the code that moves a choice
+#  to a new sequence position.
+
+                }
+
+
+#-----------------------------------------------
+#  Repeat the loop that moves each unsorted choice
+#  into the sorted segment.
+
+            }
+
+
+#-----------------------------------------------
+#  For debugging, display the highest and lowest
+#  rankings -- unless the values are about to be
+#  reset.
+
+            if ( $true_or_false_log_details == $global_true )
+            {
+                if ( $sort_pass_counter != $pass_count_at_last_score_increase )
+                {
+                    print LOGOUT "\n" ;
+                    for ( $adjusted_choice = 1 ; $adjusted_choice <= $local_adjusted_choice_count ; $adjusted_choice ++ )
+                    {
+                        $actual_choice = $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                        $highest_rank = $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] ;
+                        $lowest_rank = $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] ;
+                        print LOGOUT "[insertion sort, in sort-pass loop, choice " . $actual_choice . " has been at highest " . $highest_rank . " and lowest " . $lowest_rank . "]\n" ;
+                    }
+                }
+            }
+
+
+#-----------------------------------------------
+#  If the total score increased during this
+#  sorting pass, reset the highest and lowest
+#  sequence-position values according to the
+#  current sort order, and reset the flag
+#  that might have indicated a stable condition.
+
+            if ( $sort_pass_counter == $pass_count_at_last_score_increase )
+            {
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "\n[insertion sort, in sort-pass loop, score increased during this pass, so initializing highest and lowest positions for all choices]\n" } ;
+                $reached_stable_condition_at_pass_count = 0 ;
+                $count_of_sequences_with_same_highest_score = 0 ;
+                for ( $sequence_position = 1 ; $sequence_position <= $local_adjusted_choice_count ; $sequence_position ++ )
+                {
+                    $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] ;
+                    $adjusted_choice = $local_adjusted_choice_for_actual_choice[ $actual_choice ] ;
+                    $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $sequence_position ;
+                    $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] = $sequence_position ;
+                }
+            }
+
+
+#-----------------------------------------------
+#  Log the movement of any choices during this
+#  sorting pass.
+
+            if ( $true_or_false_log_details == $global_true )
+            {
+                if ( $sort_pass_count_at_last_move == $sort_pass_counter )
+                {
+                    print LOGOUT "\n[insertion sort, in sort-pass loop, at least one choice moved during this sorting pass]\n" ;
+                } else
+                {
+                    print LOGOUT "\n[insertion sort, in sort-pass loop, no choices moved during this sorting pass]\n" ;
+                }
+
+                for ( $adjusted_choice = 1 ; $adjusted_choice <= $local_adjusted_choice_count ; $adjusted_choice ++ )
+                {
+                    $pass_number = $pass_number_at_last_rerank_for_adjusted_choice[ $adjusted_choice ] ;
+                    if ( $pass_number == $sort_pass_counter )
+                    {
+                        $actual_choice = $local_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+                        print LOGOUT "[insertion sort, in sort-pass loop, choice " . $actual_choice . " moved during this pass]\n" ;
+                    }
+                }
+                print LOGOUT "\n" ;
+            }
+
+
+#-----------------------------------------------
+#  Repeat the loop that sorts the choices (until
+#  they stabilize).
+
+        }
+
+
+#-----------------------------------------------
+#  Log the ending sequence.
+
+        if ( $true_or_false_log_details == $global_true )
+        {
+            print LOGOUT "\n[insertion sort, in main loop, ending sequence is: " ;
+            for ( $sequence_position = 1 ; $sequence_position <= $local_adjusted_choice_count ; $sequence_position ++ )
+            {
+                $actual_choice = $actual_choice_in_insertion_rank_sequence_position[ $sequence_position ] ;
+                print LOGOUT $actual_choice . " , " ;
+            }
+            print LOGOUT "]\n" ;
+        }
+
+
+#-----------------------------------------------
+#  If only one sequence has the highest sequence
+#  score, do not do any sub-set sorting (to
+#  ensure finding correct most-popular choice).
+
+        if ( ( $main_loop_count == 1 ) && ( $count_of_sequences_with_same_highest_score == 1 ) )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, only one sequence has highest sequence score, so exiting main loop]\n" } ;
+            last ;
+        }
+
+
+#-----------------------------------------------
+#  If this is the final stage, put the highest-
+#  ranked choice (or choices) back into the full
+#  sequence, at the highest ranking.
+#  Also adjust the values that keep track of
+#  each choice's highest and lowest positions.
+
+        if ( $final_stage_reached_at_main_loop_count == $main_loop_count )
+        {
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, wrapping up final stage]\n" } ;
+            $source_sequence_position = $local_adjusted_choice_count ;
+            for ( $destination_sequence_position = $global_adjusted_choice_count ; $destination_sequence_position >= $global_adjusted_choice_count - $local_adjusted_choice_count + 1 ; $destination_sequence_position -- )
+            {
+                $actual_choice_to_move = $actual_choice_in_insertion_rank_sequence_position[ $source_sequence_position ] ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[lower choice " . $actual_choice_to_move . " is restored to adjusted choice " . $adjusted_choice_to_move . "]\n" } ;
+                $actual_choice_in_insertion_rank_sequence_position[ $destination_sequence_position ] = $actual_choice_to_move ;
+                $adjusted_choice_to_move = $global_adjusted_choice_for_actual_choice[ $actual_choice_to_move ] ;
+                $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] += $global_adjusted_choice_count - $local_adjusted_choice_count ;
+                $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] += $global_adjusted_choice_count - $local_adjusted_choice_count ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[choice " . $actual_choice_to_move . " has highest sequence position " . $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] . " and lowest sequence position " . $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice_to_move ] . "]\n" } ;
+                $source_sequence_position -- ;
+            }
+            for ( $destination_sequence_position = 1 ; $destination_sequence_position <= $count_of_highest_ranked_choices ; $destination_sequence_position ++ )
+            {
+                $choice_counter = $destination_sequence_position ;
+                $actual_choice = $highest_ranked_actual_choice_at_count[ $choice_counter ] ;
+                $actual_choice_in_insertion_rank_sequence_position[ $destination_sequence_position ] = $actual_choice ;
+                $adjusted_choice = $global_adjusted_choice_for_actual_choice[ $actual_choice ] ;
+                if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[highest choice " . $actual_choice . " is restored to adjusted choice " . $adjusted_choice . "]\n" } ;
+            }
+            if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, in main loop, done with final stage, exiting main loop]\n" } ;
+            last ;
+        }
+
+
+#-----------------------------------------------
+#  Repeat the loop to do the next stage of
+#  calculations.
+
+    }
+
+
+#-----------------------------------------------
+#  If, at the end of the multiple sorting
+#  passes, any of the choices were still moving,
+#  this indicates that some choices are tied (at
+#  the same ranking level), so determine
+#  which choices are tied, and at which levels.
+#  If no choices have moved, use the following
+#  code anyway because it normalizes the
+#  ranking levels.
+#  For each choice, multiply the sum of
+#  the highest and lowest ranking level by
+#  a constant (10 times the number of choices minus one)
+#  and convert the result to an integer.
+#  Use these "averaged scaled integerized"
+#  ranking levels to calculate normalized
+#  (and normal) ranking levels, where
+#  choices are ranked at the same level if
+#  they have the same
+#  averaged-scaled-integerized values.
+
+    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, calculating averaged-scaled-integerized levels]\n" } ;
+    $scale_value = 10 * ( $global_adjusted_choice_count - 1 ) ;
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $highest_rank = $highest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] ;
+        $lowest_rank = $lowest_insertion_sort_sequence_position_for_actual_choice[ $actual_choice ] ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, done, choice " . $actual_choice . " has been at highest rank level " . $highest_rank . " and lowest rank level " . $lowest_rank . "]\n" } ;
+        $special_ranking_level = int( ( $highest_rank + $lowest_rank ) * $scale_value ) ;
+        $global_rank_to_normalize_for_adjusted_choice[ $adjusted_choice ] = $special_ranking_level ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, choice " . $actual_choice . " at special rank level " . $special_ranking_level . "]\n" } ;
+    }
+    &normalize_ranking( ) ;
+    if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, final normalized ranking levels]\n" } ;
+    for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+    {
+        $ranking_level = $global_rank_to_normalize_for_adjusted_choice[ $adjusted_choice ] ;
+        $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+        $global_insertion_sort_popularity_rank_for_actual_choice[ $actual_choice ] = $ranking_level ;
+        if ( $true_or_false_log_details == $global_true ) { print LOGOUT "[insertion sort, choice " . $actual_choice . " at normalized rank level " . $ranking_level . "]\n" } ;
+    }
+
+
+#-----------------------------------------------
+#  For debugging, display the tally numbers in
+#  an array/matrix arrangement.
+#  Use the sequence that was determined when
+#  normalization was done.
+
+    if ( $true_or_false_log_details == $global_true )
+    {
+        print LOGOUT "[insertion sort, final insertion-sort popularity ranking:]\n" ;
+        &internal_view_matrix( ) ;
+        if ( $global_sequence_score > $global_sequence_score_using_insertion_sort_method )
+        {
+            $global_sequence_score_using_insertion_sort_method = $global_sequence_score ;
+            print LOGOUT "\n[insertion sort, new sequence score is: " . $global_sequence_score_using_insertion_sort_method . "]\n" ;
+        }
+    }
+
+
+#-----------------------------------------------
+#  Log the calculated ranking levels.
+
+    if ( $true_or_false_log_details == $global_true )
+    {
+        print LOGOUT "[insertion sort, final results:]\n" ;
+        for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+        {
+            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+            print LOGOUT "[  choice " . $actual_choice . " is at ranking level " . $global_insertion_sort_popularity_rank_for_actual_choice[ $actual_choice ] . "]\n" ;
+        }
+    }
+
+
+#-----------------------------------------------
+#  End of subroutine.
+
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[insertion sort, exiting calc_votefair_insertion_sort_popularity_rank subroutine]\n\n" } ;
+    return "" ;
+
+}
+
+
+
+
 =head2 calc_all_sequence_scores
 
 (Not exported, for internal use only.)
@@ -3175,6 +5993,13 @@ sub calc_all_sequence_scores
                     print LOGOUT $actual_choice . " , " ;
                 }
                 print LOGOUT "  has high score of " . $highest_score . "]\n" ;
+                if ( $main_loop_count == 1 )
+                {
+                    $global_sequence_score_using_all_scores_method = 0 ;
+                }
+                print LOGOUT "[all scores, current top or score-matched ranking:]\n" ;
+                &internal_view_matrix( ) ;
+                $global_sequence_score_using_all_scores_method = $global_sequence_score ;
             }
 
 
@@ -3262,9 +6087,168 @@ sub calc_all_sequence_scores
 
 
 #-----------------------------------------------
+#  For debugging, display the tally numbers in
+#  an array/matrix arrangement.
+#  Use the sequence that was determined when
+#  normalization was done.
+
+    $true_or_false_log_details = $global_true ;
+    if ( $true_or_false_log_details == $global_true )
+    {
+        print LOGOUT "[all scores, final popularity ranking:]\n" ;
+        &internal_view_matrix( ) ;
+    }
+
+
+#-----------------------------------------------
 #  End of subroutine.
 
     if ( $global_logging_info == $global_true ) { print LOGOUT "[all scores, exiting calc_all_sequence_scores subroutine]\n\n" } ;
+    return 1 ;
+
+}
+
+
+
+
+=head2 compare_popularity_results
+
+(Not exported, for internal use only.)
+
+Compares the results of different methods for
+calculating VoteFair popularity ranking.
+
+=cut
+
+#-----------------------------------------------
+#-----------------------------------------------
+#            compare_popularity_results
+#-----------------------------------------------
+#-----------------------------------------------
+
+sub compare_popularity_results
+{
+
+    my $actual_choice ;
+    my $adjusted_choice ;
+    my $sequence_position ;
+    my $ranking_level ;
+    my $ranking_level_official ;
+    my $comparison_of_methods_table ;
+    my $ranking_level_choice_specific_pairwise_score ;
+    my $ranking_level_insertion_sort ;
+    my $possible_text_insertion_sort_not_the_same ;
+    my $possible_text_choice_specific_pairwise_score_not_the_same ;
+
+    my @actual_choice_at_popularity_list_sequence_position ;
+
+
+#-----------------------------------------------
+#  Sort the official ranking results into a list
+#  that is used when listing choice rankings,
+#  which means that within the same ranking,
+#  a lower choice number appears before a higher
+#  choice number.
+
+    $sequence_position = 1 ;
+    for ( $ranking_level = 0 ; $ranking_level <= $global_adjusted_choice_count ; $ranking_level ++ )
+    {
+        for ( $adjusted_choice = 1 ; $adjusted_choice <= $global_adjusted_choice_count ; $adjusted_choice ++ )
+        {
+            $actual_choice = $global_actual_choice_for_adjusted_choice[ $adjusted_choice ] ;
+            if ( $global_popularity_ranking_for_actual_choice[ $actual_choice ] == $ranking_level )
+            {
+                $actual_choice_at_popularity_list_sequence_position[ $sequence_position ] = $actual_choice ;
+                $global_log_info_choice_at_position[ $sequence_position ] = $actual_choice ;
+                $sequence_position ++ ;
+            }
+        }
+    }
+
+
+#-----------------------------------------------
+#  Log a display of the tally numbers in
+#  an array version.
+
+    if ( $global_logging_info == $global_true )
+    {
+        print LOGOUT "[compare pop results, ordered pairwise counts:]\n" ;
+        &internal_view_matrix( ) ;
+    }
+
+
+#-----------------------------------------------
+#  Convert the tally numbers into percentages,
+#  and display those values.
+
+    if ( $global_logging_info == $global_true )
+    {
+        print LOGOUT "[compare pop results, total vote count is " . $global_current_total_vote_count . "]\n" ;
+        $global_scale_for_logged_pairwise_counts = 100 / $global_current_total_vote_count ;
+        print LOGOUT "[compare pop results, pairwise counts as percent numbers (if only scaled by total votes):]\n" ;
+        &internal_view_matrix( ) ;
+        $global_scale_for_logged_pairwise_counts = 1.0 ;
+    }
+
+
+#-----------------------------------------------
+#  As a check, compare the results of the
+#  different ranking calculations.
+#  Sort the results by popularity.
+
+    if ( not( defined( $global_comparison_count ) ) )
+    {
+        $global_comparison_count = 0 ;
+    }
+    $global_comparison_count ++ ;
+    if ( not( defined( $global_not_same_count ) ) )
+    {
+        $global_not_same_count = 0 ;
+    }
+    $possible_text_insertion_sort_not_the_same = "InsSrt same" ;
+    $possible_text_choice_specific_pairwise_score_not_the_same = "CSPS same" ;
+    $comparison_of_methods_table = "[compare pop results, case " . $global_case_number . " , question " . $global_question_number . " , rank type = " . $global_ranking_type_being_calculated . "]\n" ;
+    $comparison_of_methods_table .= "[compare pop results, columns: official, insertion, estimated]\n" ;
+    for ( $sequence_position = 1 ; $sequence_position <= $global_adjusted_choice_count ; $sequence_position ++ )
+    {
+        $actual_choice = $actual_choice_at_popularity_list_sequence_position[ $sequence_position ] ;
+        $adjusted_choice = $global_adjusted_choice_for_actual_choice[ $actual_choice ] ;
+        $ranking_level_official = $global_popularity_ranking_for_actual_choice[ $actual_choice ] ;
+        $ranking_level_choice_specific_pairwise_score = $global_choice_score_popularity_rank_for_actual_choice[ $actual_choice ] ;
+        $ranking_level_insertion_sort = $global_insertion_sort_popularity_rank_for_actual_choice[ $actual_choice ] ;
+        $comparison_of_methods_table .= "[choice " . sprintf( "%2d" , $actual_choice ) . " at levels " . $ranking_level_official . " , " . $ranking_level_insertion_sort . " , " . $ranking_level_choice_specific_pairwise_score . "]" ;
+        if ( $ranking_level_official != $ranking_level_insertion_sort )
+        {
+            $possible_text_insertion_sort_not_the_same = "InsSrt NOT same" ;
+            $comparison_of_methods_table .= " ****** " ;
+        }
+        if ( $ranking_level_official != $ranking_level_choice_specific_pairwise_score )
+        {
+            $possible_text_choice_specific_pairwise_score_not_the_same = "CSPS NOT same" ;
+            $comparison_of_methods_table .= " ------ " ;
+        }
+        $comparison_of_methods_table .= "\n" ;
+    }
+    if ( $possible_text_insertion_sort_not_the_same eq "InsSrt NOT same" )
+    {
+        $global_not_same_count ++ ;
+    }
+    $comparison_of_methods_table .= "[" . $possible_text_insertion_sort_not_the_same . "][" . $possible_text_choice_specific_pairwise_score_not_the_same . "][case " . $global_case_number . " question " . $global_question_number . "]\n\n" ;
+    if ( $global_logging_info == $global_true ) { print LOGOUT $comparison_of_methods_table . "\n" } ;
+
+
+#-----------------------------------------------
+#  Display a count of how many rankings have
+#  been done.
+
+    $global_count_of_popularity_rankings ++ ;
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[count of popularity rankings: " . $global_count_of_popularity_rankings . "]\n" } ;
+
+
+#-----------------------------------------------
+#  End of subroutine.
+
+    if ( $global_logging_info == $global_true ) { print LOGOUT "[compare pop results, exiting subroutine]\n" } ;
     return 1 ;
 
 }
@@ -4828,6 +7812,21 @@ sub calculate_results_for_one_question
 
 
 #-----------------------------------------------
+#  Log a display of the tally numbers in
+#  an array version.
+
+    if ( $global_logging_info == $global_true )
+    {
+        for ( $actual_choice = 1 ; $actual_choice <= $global_full_choice_count ; $actual_choice ++ )
+        {
+            $global_log_info_choice_at_position[ $actual_choice ] = $actual_choice ;
+        }
+        print LOGOUT "[one question, full pairwise counts ranking:]\n" ;
+        &internal_view_matrix( ) ;
+    }
+
+
+#-----------------------------------------------
 #  Unless suppressed, output the pairwise counts
 #  -- while the pairwise counts for all the
 #  choices are still in the tally table.
@@ -4895,6 +7894,29 @@ sub calculate_results_for_one_question
     }
     if ( $global_logging_info == $global_true ) { print LOGOUT "[one question, number of most-popular choices is " . $global_choice_count_at_full_top_popularity_ranking_level . "]\n" } ;
     if ( $global_logging_info == $global_true ) { print LOGOUT "[one question, if only one top choice, choice number is " . $global_actual_choice_at_top_of_full_popularity_ranking . "]\n" } ;
+
+
+#-----------------------------------------------
+#  Log a display of the tally numbers with the
+#  choices in popularity ranking sequence.
+
+    if ( $global_logging_info == $global_true )
+    {
+        $sequence_position = 1 ;
+        for ( $ranking_level = 1 ; $ranking_level <= $global_full_choice_count ; $ranking_level ++ )
+        {
+            for ( $actual_choice = 1 ; $actual_choice <= $global_full_choice_count ; $actual_choice ++ )
+            {
+                if ( $global_full_popularity_ranking_for_actual_choice[ $actual_choice ] == $ranking_level )
+                {
+                    $global_log_info_choice_at_position[ $sequence_position ] = $actual_choice ;
+                    $sequence_position ++ ;
+                }
+            }
+        }
+        print LOGOUT "[one question, pairwise counts in VoteFair popularity ranking sequence:]\n" ;
+        &internal_view_matrix( ) ;
+    }
 
 
 #-----------------------------------------------
@@ -5542,6 +8564,130 @@ sub add_preferences_to_tally_table
             $global_tally_first_equal_second_in_pair[ $pair_counter ] += $tally_amount ;
         }
     }
+
+
+#-----------------------------------------------
+#  End of subroutine.
+
+    return 1 ;
+
+}
+
+
+
+
+
+=head2 internal_view_matrix
+
+(Not exported, for internal use only.)
+
+For debugging purposes, writes to the debug log
+a matrix with the pairwise counts.
+
+=cut
+
+#-----------------------------------------------
+#-----------------------------------------------
+#            internal_view_matrix
+#-----------------------------------------------
+#-----------------------------------------------
+
+sub internal_view_matrix
+{
+
+    my $matrix_row_number ;
+    my $matrix_column_number ;
+    my $sequence_string ;
+    my $pair_counter ;
+    my $adjusted_first_choice ;
+    my $adjusted_second_choice ;
+    my $actual_first_choice ;
+    my $actual_second_choice ;
+    my $text_count ;
+    my $tally ;
+    my $opposition_score ;
+    my $text_count_decimal ;
+    my $percentage ;
+
+
+#-----------------------------------------------
+#  The sequence must be indicated in the list named
+#  global_log_info_choice_at_position.
+#  The number of choices is determined by the value
+#  of global_adjusted_choice_count.
+
+
+#-----------------------------------------------
+#  Display the tally numbers in a matrix.
+
+    if ( $global_logging_info == $global_true )
+    {
+        $sequence_string = "" ;
+        $global_pairwise_matrix_text = "" ;
+        $global_sequence_score = 0 ;
+        $opposition_score = 0 ;
+        if ( ( not( defined( $global_scale_for_logged_pairwise_counts ) ) ) || ( $global_scale_for_logged_pairwise_counts < 0.000001 ) )
+        {
+            $global_scale_for_logged_pairwise_counts = 1.0 ;
+        }
+        for ( $matrix_row_number = 1 ; $matrix_row_number <= $global_adjusted_choice_count ; $matrix_row_number ++ )
+        {
+            $actual_first_choice = $global_log_info_choice_at_position[ $matrix_row_number ] ;
+            $adjusted_first_choice = $global_adjusted_choice_for_actual_choice[ $actual_first_choice ] ;
+            $sequence_string .= $actual_first_choice . " , " ;
+            $global_pairwise_matrix_text .= "[" ;
+            for ( $matrix_column_number = 1 ; $matrix_column_number <= $global_adjusted_choice_count ; $matrix_column_number ++ )
+            {
+                $actual_second_choice = $global_log_info_choice_at_position[ $matrix_column_number ] ;
+                $adjusted_second_choice = $global_adjusted_choice_for_actual_choice[ $actual_second_choice ] ;
+                $tally = 0 ;
+                if ( $actual_first_choice == $actual_second_choice )
+                {
+                    $text_count = " ---" ;
+                    $text_count_decimal = "  ----- " ;
+                } elsif ( $actual_first_choice < $actual_second_choice )
+                {
+                    $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $adjusted_first_choice ] + $adjusted_second_choice ;
+                    $tally = $global_tally_first_over_second_in_pair[ $pair_counter ] * $global_scale_for_logged_pairwise_counts ;
+                    $text_count = sprintf( "%4d" , $tally ) ;
+                    $text_count_decimal = sprintf( "%6.2f" , $tally ) ;
+                } else
+                {
+                    $pair_counter = $global_pair_counter_offset_for_first_adjusted_choice[ $adjusted_second_choice ] + $adjusted_first_choice ;
+                    $tally = $global_tally_second_over_first_in_pair[ $pair_counter ] * $global_scale_for_logged_pairwise_counts ;
+                    $text_count = sprintf( "%4d" , $tally ) ;
+                    $text_count_decimal = sprintf( "%6.2f" , $tally ) ;
+                }
+                $global_pairwise_matrix_text .= "  " . $text_count . "  " ;
+                if ( $matrix_column_number > $matrix_row_number )
+                {
+                    $global_sequence_score += $tally ;
+                } else
+                {
+                    $opposition_score += $tally ;
+                }
+            }
+            $global_pairwise_matrix_text .= "]\n" ;
+        }
+        if ( $global_sequence_score + $opposition_score > 0 )
+        {
+            $percentage = ( $global_sequence_score / ( $global_sequence_score + $opposition_score ) ) * 100 ;
+        } else
+        {
+            $percentage = 0 ;
+        }
+        $sequence_string =~ s/, *$// ;
+        $global_pairwise_matrix_text .= "\n" . "[above counts apply to sequence: " . $sequence_string . "] [seq score = " . sprintf( "%6d" , $global_sequence_score ) . "]\n" ;
+        $global_pairwise_matrix_text .= "[percent support: " . sprintf( "%4d" , $percentage ) . "]\n" ;
+        print LOGOUT "\n" . $global_pairwise_matrix_text . "\n" ;
+    }
+
+
+#-----------------------------------------------
+#  Reset the scale value in case it is not
+#  reset elsewhere.
+
+    $global_scale_for_logged_pairwise_counts = 1.0 ;
 
 
 #-----------------------------------------------

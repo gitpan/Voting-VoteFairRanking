@@ -16,7 +16,7 @@ name: Voting-VoteFairRanking
 provides:
   Voting::VoteFairRanking:
     file: lib/Voting/VoteFairRanking.pm
-    version: 4.90
+    version: 5.00
 resources:
   license: http://opensource.org/licenses/artistic-license.php
-version: 4.90
+version: 5.00
