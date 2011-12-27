@@ -4,7 +4,7 @@ use Module::Build;
 
 my $builder = Module::Build->new(
     module_name         => 'Voting::VoteFairRanking',
-    license             => 'artistic',
+    license             => 'artistic_2',
     dist_author         => 'Richard Fobes <fobes@CPAN.org>',
     dist_version_from   => 'lib/Voting/VoteFairRanking.pm',
     build_requires => {
